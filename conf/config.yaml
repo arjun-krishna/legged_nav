@@ -26,6 +26,11 @@ resume: False
 run: -1         # -1: last run
 checkpoint: -1  # -1: last checkpoint
 
+# test/play config
+export: true        # exports the policy network
+move_cam: false 
+record: false
+
 defaults:
   - _self_
   - task: A1Rough

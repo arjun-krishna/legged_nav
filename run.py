@@ -20,7 +20,7 @@ def train(env_cfg, train_cfg, task_name, args):
     ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=task_name, args=args)
     ppo_runner.learn(num_learning_iterations=train_cfg.runner.max_iterations, init_at_random_ep_len=True)
 
-def play(env_cfg, train_cfg, task_name, args):
+def play(env_cfg, train_cfg, task_name, args, export_cfg):
     task_registry.register(task_name, LeggedRobot, env_cfg, train_cfg)
     # override some parameters for testing
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, 50)
@@ -40,7 +40,7 @@ def play(env_cfg, train_cfg, task_name, args):
     policy = ppo_runner.get_inference_policy(device=env.device)
     
     # export policy as a jit module (used to run it from C++)
-    if EXPORT_POLICY:
+    if export_cfg['export_policy']:
         path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'policies')
         export_policy_as_jit(ppo_runner.alg.actor_critic, path)
         print('Exported policy as jit script to: ', path)
@@ -55,15 +55,18 @@ def play(env_cfg, train_cfg, task_name, args):
     camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
     img_idx = 0
 
+    if export_cfg['record_frames']:
+        os.makedirs(os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'frames'), exist_ok=True)
+        
     for i in range(10*int(env.max_episode_length)):
         actions = policy(obs.detach())
         obs, _, rews, dones, infos = env.step(actions.detach())
-        if RECORD_FRAMES:
+        if export_cfg['record_frames']:
             if i % 2:
                 filename = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'frames', f"{img_idx}.png")
                 env.gym.write_viewer_image_to_file(env.viewer, filename)
                 img_idx += 1 
-        if MOVE_CAMERA:
+        if export_cfg['move_camera']:
             camera_position += camera_vel * env.dt
             env.set_camera(camera_position, camera_position + camera_direction)
 
@@ -105,13 +108,16 @@ def run(cfg: DictConfig):
     env_cfg, train_cfg = convert_hydra_cfg(cfg)
     task_name = cfg.task.name
     args = get_args(cfg)
+
     if cfg.test:
-        play(env_cfg, train_cfg, task_name, args)
+        export_cfg = {
+            'export_policy': cfg.export,
+            'record_frames': cfg.record,
+            'move_camera': cfg.move_cam,
+        }
+        play(env_cfg, train_cfg, task_name, args, export_cfg)
     else:
         train(env_cfg, train_cfg, task_name, args)
 
 if __name__ == '__main__':
-    EXPORT_POLICY = True
-    RECORD_FRAMES = False
-    MOVE_CAMERA = False
     run()
