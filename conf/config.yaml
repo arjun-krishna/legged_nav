@@ -1,0 +1,38 @@
+# experiment
+experiment_name: null
+run_name: null
+headless: False
+
+# training
+horovod: False
+rl_device: 'cuda:0'
+num_envs: null        # override default task config
+seed: 1
+max_iterations: null  # override default task config
+
+# sim params
+physics_engine: 'physx' # 0: physx, 1: flex
+sim_device: 'cuda:0'
+pipeline: ${if:${contains:"cuda",${sim_device}},'gpu','cpu'}
+graphics_device_id: 0
+
+num_threads: 4 # worker threads per scene - CPU PhysX only
+solver_type: 1 # 0: pgs, 1: tgs
+subscenes: 4 # split into N physics scenes and run in seperate thread
+
+# checkpoints
+test: False
+resume: False
+run: -1         # -1: last run
+checkpoint: -1  # -1: last checkpoint
+
+defaults:
+  - _self_
+  - task: A1Rough
+  - train: ${task}PPO
+
+# saving outputs hydra
+hydra:
+  output_subdir: null
+  run:
+    dir: .
