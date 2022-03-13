@@ -1,0 +1,1 @@
+- add License information for aliengo urdf files
