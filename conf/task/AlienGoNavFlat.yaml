@@ -2,16 +2,21 @@ name: AlienGoNavFlat
 seed: ${..seed}
 
 env:
-  num_envs: ${resolve_default:1024,${...num_envs}}
+  num_envs: ${resolve_default:4096,${...num_envs}}
   num_observations: 48
   num_privileged_obs: null
   num_actions: 12
   env_spacing: 3
   send_timeouts: true
   episode_length_s: 20
+  debug_viz: ${resolve_default:False,${...test}}
 
 obstacle:
   static:
+    num: 0
+  dynamic:
+    num: 0
+  magic_spawn:
     num: 0
 
 terrain:
@@ -45,9 +50,9 @@ commands:
   num_commands: 3 # default: goal_x, goal_y, vel
   resampling_time: 20 # time before command is changed[s]
   ranges:
-    goal_x: [-5., 5.] # [m]
-    goal_y: [-5., 5.] # [m]
-    vel: [0.1, 1.0]   # [m/s]
+    goal_x: [-3., 3.] # [m]
+    goal_y: [-3., 3.] # [m]
+    vel: [0.1, 1.0]     # [m/s]
 
 init_state:
   pos: [0., 0., 0.38] # x,y,z [m]
@@ -115,8 +120,6 @@ domain_rand:
 rewards:
   scales:
     termination: -0.0
-    tracking_lin_vel: 1.0
-    tracking_ang_vel: 0.5
     lin_vel_z: -2.0
     ang_vel_xy: -0.05
     orientation: -5.0
@@ -130,8 +133,12 @@ rewards:
     action_rate: -0.01
     stand_still: -0.0
     dof_pos_limits: -10.0
+    progress: 0.5
+    tracking_vel: 1.0 # perhaps change to just forward velocity vector
+    success: 100.
   
   only_positive_rewards: true # negative total rewards are clipped at zero (avoid early termination problem)
+  dist_threshold: 0.8
   tracking_sigma: 0.25 # tracking reward = exp(-error^2/sigma)
   soft_dof_pos_limit: 0.9
   soft_dof_vel_limit: 1.

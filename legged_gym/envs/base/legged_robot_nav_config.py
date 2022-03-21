@@ -9,6 +9,7 @@ class LeggedRobotNavCfg(BaseConfig):
         env_spacing = 3.  # not used with heightfields/trimeshes 
         send_timeouts = True # send time out information to the algorithm
         episode_length_s = 20 # episode length in seconds
+        debug_viz = False # debug viz drawing
     
     class obstacle:
         class static:
@@ -120,20 +121,21 @@ class LeggedRobotNavCfg(BaseConfig):
     class rewards:
         class scales:
             termination = -0.0
-            tracking_lin_vel = 1.0
-            tracking_ang_vel = 0.5
             lin_vel_z = -2.0
             ang_vel_xy = -0.05
             orientation = -0.
             torques = -0.00001
             dof_vel = -0.
             dof_acc = -2.5e-7
-            base_height = -0. 
+            base_height = -0.
             feet_air_time =  1.0
             collision = -1.
             feet_stumble = -0.0 
             action_rate = -0.01
             stand_still = -0.
+            progress = 1.0
+            tracking_vel = 0.01
+            success = 10.0
 
         only_positive_rewards = True # if true negative total rewards are clipped at zero (avoids early termination problems)
         tracking_sigma = 0.25 # tracking reward = exp(-error^2/sigma)
@@ -142,6 +144,7 @@ class LeggedRobotNavCfg(BaseConfig):
         soft_torque_limit = 1.
         base_height_target = 1.
         max_contact_force = 100. # forces above this value are penalized
+        dist_threshold = 0.8 # success threshold [m]
 
     class normalization:
         class obs_scales:

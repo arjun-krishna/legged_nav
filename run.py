@@ -7,21 +7,22 @@ from omegaconf import DictConfig, OmegaConf
 import isaacgym
 from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.envs.base.legged_robot import LeggedRobot
+from legged_gym.envs.base.legged_robot_nav import LeggedRobotNav
 from legged_gym.envs import *
 from legged_gym.utils import task_registry, export_policy_as_jit, Logger
 import torch
 import numpy as np
 
-from util import convert_hydra_cfg, get_args
+from util import *
 
-def train(env_cfg, train_cfg, task_name, args):
-    task_registry.register(task_name, LeggedRobot, env_cfg, train_cfg)
+def train(env_cfg, train_cfg, env_class, task_name, args):
+    task_registry.register(task_name, env_class, env_cfg, train_cfg)
     env, env_cfg = task_registry.make_env(name=task_name, args=args)
     ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=task_name, args=args)
     ppo_runner.learn(num_learning_iterations=train_cfg.runner.max_iterations, init_at_random_ep_len=True)
 
-def play(env_cfg, train_cfg, task_name, args, export_cfg):
-    task_registry.register(task_name, LeggedRobot, env_cfg, train_cfg)
+def play(env_cfg, train_cfg, env_class, task_name, args, export_cfg):
+    task_registry.register(task_name, env_class, env_cfg, train_cfg)
     # override some parameters for testing
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, 50)
     env_cfg.terrain.num_rows = 5
@@ -105,8 +106,13 @@ OmegaConf.register_new_resolver('resolve_default', lambda default, arg: default 
 @hydra.main(config_name="config", config_path="conf/")
 def run(cfg: DictConfig):
     # print(OmegaConf.to_yaml(cfg))
-    env_cfg, train_cfg = convert_hydra_cfg(cfg)
     task_name = cfg.task.name
+    if 'Nav' in task_name:
+        env_cfg, train_cfg = convert_nav_hydra_cfg(cfg)
+        env_class = LeggedRobotNav
+    else:
+        env_cfg, train_cfg = convert_hydra_cfg(cfg)
+        env_class = LeggedRobot
     args = get_args(cfg)
 
     if cfg.test:
@@ -115,9 +121,9 @@ def run(cfg: DictConfig):
             'record_frames': cfg.record,
             'move_camera': cfg.move_cam,
         }
-        play(env_cfg, train_cfg, task_name, args, export_cfg)
+        play(env_cfg, train_cfg, env_class, task_name, args, export_cfg)
     else:
-        train(env_cfg, train_cfg, task_name, args)
+        train(env_cfg, train_cfg, env_class, task_name, args)
 
 if __name__ == '__main__':
     run()
