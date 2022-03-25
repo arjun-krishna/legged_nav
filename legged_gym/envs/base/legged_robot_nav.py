@@ -145,9 +145,9 @@ class LeggedRobotNav(BaseTask):
         self.time_out_buf = self.episode_length_buf > self.max_episode_length # no terminal reward for time-outs
         self.reset_buf |= self.time_out_buf
 
-        dist_target = torch.norm(self.target - self.actor_root_states[:,:2], dim=-1)
-        self.target_reached = dist_target < self.cfg.rewards.dist_threshold
-        self.reset_buf |= self.target_reached
+        dist_target = torch.norm(self.target[:,:2] - self.actor_root_states[:,:2], dim=-1)
+        target_reached = dist_target < self.cfg.rewards.dist_threshold
+        self.reset_buf |= target_reached
 
     def reset_idx(self, env_ids):
         """ Reset some environments.
@@ -351,7 +351,10 @@ class LeggedRobotNav(BaseTask):
         self.commands[env_ids, 1] = torch_rand_float(self.command_ranges["goal_y"][0], self.command_ranges["goal_y"][1], (len(env_ids), 1), device=self.device).squeeze(1)
         self.commands[env_ids, 2] = torch_rand_float(self.command_ranges["vel"][0], self.command_ranges["vel"][1], (len(env_ids), 1), device=self.device).squeeze(1)
 
-        self.target[env_ids] = self.commands[env_ids, :2] + self.env_origins[env_ids, :2]
+        self.target[env_ids,:2] = self.commands[env_ids,:2] + self.env_origins[env_ids,:2]
+
+        to_target = self.target[env_ids,:2] - self.actor_root_states[env_ids,:2]
+        self.potentials[env_ids] = torch.norm(to_target, p=2, dim=-1) / self.dt
         # set small commands to zero
         # self.commands[env_ids, :2] *= (torch.norm(self.commands[env_ids, :2], dim=1) > 0.2).unsqueeze(1)
 
@@ -522,9 +525,9 @@ class LeggedRobotNav(BaseTask):
         self.last_actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self.last_dof_vel = torch.zeros_like(self.dof_vel)
         self.last_root_vel = torch.zeros_like(self.actor_root_states[:, 7:13])
-        self.commands = torch.zeros(self.num_envs, self.cfg.commands.num_commands, dtype=torch.float, device=self.device, requires_grad=False) # goal x, goal y, vel
+        self.commands = torch.zeros(self.num_envs, self.cfg.commands.num_commands, dtype=torch.float, device=self.device, requires_grad=False) # goal x, goal y, 0, vel
         self.commands_scale = torch.tensor([1., 1., self.obs_scales.lin_vel], device=self.device, requires_grad=False,) # TODO change this
-        self.target = torch.zeros(self.num_envs, 2, dtype=torch.float, device=self.device, requires_grad=False)
+        self.target = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.feet_air_time = torch.zeros(self.num_envs, self.feet_indices.shape[0], dtype=torch.float, device=self.device, requires_grad=False)
         self.last_contacts = torch.zeros(self.num_envs, len(self.feet_indices), dtype=torch.bool, device=self.device, requires_grad=False)
         self.base_lin_vel = quat_rotate_inverse(self.base_quat, self.actor_root_states[:, 7:10])
@@ -556,6 +559,10 @@ class LeggedRobotNav(BaseTask):
         # track command progress
         self.potentials = to_torch([-1000./self.dt], device=self.device).repeat(self.num_envs)
         self.prev_potentials = self.potentials.clone()
+
+        self.basis_vec0 = to_torch([1, 0, 0], device=self.device).repeat((self.num_envs,1)) # forward
+        self.basis_vec1 = to_torch([0, 0, 1], device=self.device).repeat((self.num_envs,1)) # up
+        self.inv_start_rot = quat_conjugate(to_torch([0, 0, 0, 1], device=self.device)).repeat((self.num_envs, 1))
 
     def _prepare_reward_function(self):
         """ Prepares a list of reward functions, whcih will be called to compute the total reward.
@@ -702,11 +709,11 @@ class LeggedRobotNav(BaseTask):
             self.gym.set_actor_rigid_body_properties(env_handle, robot_handle, body_props, recomputeInertia=True)
 
             # obstacle creator
-            self.obstacle_handles.append(self.obstacle_manager.create_obstacles(self.gym, self.sim, env_handle, i))
+            # self.obstacle_handles.append(self.obstacle_manager.create_obstacles(self.gym, self.sim, env_handle, i))
 
             self.envs.append(env_handle)
             self.actor_handles.append(robot_handle)
-        self.num_obstacles = self.obstacle_manager.get_num_obstacles()
+        self.num_obstacles = 0 #self.obstacle_manager.get_num_obstacles()
 
         self.feet_indices = torch.zeros(len(feet_names), dtype=torch.long, device=self.device, requires_grad=False)
         for i in range(len(feet_names)):
@@ -736,7 +743,7 @@ class LeggedRobotNav(BaseTask):
             self.terrain_origins = torch.from_numpy(self.terrain.env_origins).to(self.device).to(torch.float)
             self.env_origins[:] = self.terrain_origins[self.terrain_levels, self.terrain_types]
         else:
-            self.custom_origins = False
+            self.custom_origins = True #False
             self.env_origins = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
             # create a grid of robots
             num_cols = np.floor(np.sqrt(self.num_envs))
@@ -759,7 +766,7 @@ class LeggedRobotNav(BaseTask):
 
         self.cfg.domain_rand.push_interval = np.ceil(self.cfg.domain_rand.push_interval_s / self.dt)
 
-        self.obstacle_manager = ObstacleManager(self.cfg.obstacle)
+        # self.obstacle_manager = ObstacleManager(self.cfg.obstacle)
 
     def _draw_debug_vis(self):
         """ Draws visualizations for dubugging (slows down simulation a lot).
@@ -767,11 +774,24 @@ class LeggedRobotNav(BaseTask):
         """
         self.gym.clear_lines(self.viewer)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
+
+        to_target = self.target[:,:3] - self.actor_root_states[:,:3]
+        to_target[:,2] = 0
+        torso_quat, up_proj, heading_proj, up_vec, heading_vec = compute_heading_and_up(
+                self.actor_root_states[:,3:7], self.inv_start_rot, to_target, self.basis_vec0, self.basis_vec1, 2)
+        hv = heading_vec.cpu().numpy()
+        u = np.array([0, 0, 1])
         for i in range(self.num_envs):
-            a = np.append(self.target[i, :2].cpu().numpy(), 0)
-            b = a.copy()
-            b[2] = 5
-            gymutil.draw_line(gymapi.Vec3(*a), gymapi.Vec3(*b), gymapi.Vec3(1, 1, 0), self.gym, self.viewer, self.envs[i])
+            p = self.actor_root_states[i,:3].cpu().numpy(); p[2] = 0
+            d = to_target[i].cpu().numpy()
+            bv = self.base_lin_vel[i,:3].cpu().numpy(); bv[2] = 0
+            h = hv[i]
+
+            gymutil.draw_line(gymapi.Vec3(*(p+d)), gymapi.Vec3(*(p+d+5*u)), gymapi.Vec3(1, 1, 0), self.gym, self.viewer, self.envs[i]) # target pole
+            gymutil.draw_line(gymapi.Vec3(*p), gymapi.Vec3(*(p+d)), gymapi.Vec3(1, 0, 1), self.gym, self.viewer, self.envs[i]) # pos -> target
+            gymutil.draw_line(gymapi.Vec3(*(p+0.1*u)), gymapi.Vec3(*(p+0.1*u+2*h)), gymapi.Vec3(1, 0, 0), self.gym, self.viewer, self.envs[i])  # heading
+            gymutil.draw_line(gymapi.Vec3(*(p+0.1*u)), gymapi.Vec3(*(p+0.1*u+2*bv)), gymapi.Vec3(0, 1, 0), self.gym, self.viewer, self.envs[i]) # velocity
+
         # draw height lines
         if not self.cfg.terrain.measure_heights:
             return
@@ -846,7 +866,7 @@ class LeggedRobotNav(BaseTask):
     #------------ obstacle utils -----------------
     @property
     def actor_root_states(self):
-        return self.root_states[::(self.num_obstacles+1)]
+        return self.root_states #[::(self.num_obstacles+1)]
 
     #------------ reward functions----------------
     def _reward_lin_vel_z(self):
@@ -925,7 +945,8 @@ class LeggedRobotNav(BaseTask):
         
     def _reward_stand_still(self):
         # Penalize motion at zero commands
-        return torch.sum(torch.abs(self.dof_pos - self.default_dof_pos), dim=1) * (torch.norm(self.target[:, :2], dim=1) < 0.1)
+        to_target = self.target[:,:2] - self.actor_root_states[:,:2]
+        return torch.sum(torch.abs(self.dof_pos - self.default_dof_pos), dim=1) * (torch.norm(to_target, dim=1) < (1.01*self.cfg.rewards.dist_threshold)) # TODO configure threshold
 
     def _reward_feet_contact_forces(self):
         # penalize high contact forces
@@ -939,14 +960,33 @@ class LeggedRobotNav(BaseTask):
         return self.potentials - self.prev_potentials
     
     def _reward_tracking_vel(self):
-        # reward for tracking velocity to reach goal (encourage reaching goal faster)
-        to_target = self.target[:,:2] - self.actor_root_states[:,:2]
-        target_vel = to_target / torch.norm(to_target, dim=-1, keepdim=True) * self.commands[:, [2]]
-
-        # heading_component = torch.sum(vel_direction * self.base_lin_vel[:,:2], dim=1)
-        # vel_error = torch.square(heading_component - self.commands[:,2])
-        vel_error = torch.sum(torch.square(target_vel - self.base_lin_vel[:, :2]), dim=1)
+        to_target = self.target[:,:3] - self.actor_root_states[:,:3]
+        to_target[:,2] = 0
+        torso_quat, up_proj, heading_proj, up_vec, heading_vec = compute_heading_and_up(
+                self.actor_root_states[:,3:7], self.inv_start_rot, to_target, self.basis_vec0, self.basis_vec1, 2)
+        desired_heading_vel = (heading_vec / torch.norm(heading_vec, p=2, dim=-1, keepdim=True)) * self.commands[:,[2]]
+        vel_error = torch.sum(torch.square(desired_heading_vel[:,:2] - self.base_lin_vel[:,:2]), dim=1)
         return torch.exp(-vel_error/self.cfg.rewards.tracking_sigma)
 
     def _reward_success(self):
-        return self.target_reached
+        dist_target = torch.norm(self.target[:,:2] - self.actor_root_states[:,:2], dim=-1)
+        target_reached = dist_target < self.cfg.rewards.dist_threshold
+        return target_reached
+
+
+@torch.jit.script
+def compute_heading_and_up(
+    torso_rotation, inv_start_rot, to_target, vec0, vec1, up_idx
+):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, int) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]
+    num_envs = torso_rotation.shape[0]
+    target_dirs = normalize(to_target)
+
+    torso_quat = quat_mul(torso_rotation, inv_start_rot)
+    up_vec = get_basis_vector(torso_quat, vec1).view(num_envs, 3)
+    heading_vec = get_basis_vector(torso_quat, vec0).view(num_envs, 3)
+    up_proj = up_vec[:, up_idx]
+    heading_proj = torch.bmm(heading_vec.view(
+        num_envs, 1, 3), target_dirs.view(num_envs, 3, 1)).view(num_envs)
+
+    return torso_quat, up_proj, heading_proj, up_vec, heading_vec

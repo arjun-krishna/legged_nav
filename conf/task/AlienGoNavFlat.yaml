@@ -50,9 +50,9 @@ commands:
   num_commands: 3 # default: goal_x, goal_y, vel
   resampling_time: 20 # time before command is changed[s]
   ranges:
-    goal_x: [-3., 3.] # [m]
-    goal_y: [-3., 3.] # [m]
-    vel: [0.1, 1.0]     # [m/s]
+    goal_x: [1., 5.] # [m]
+    goal_y: [-5., 5.] # [m]
+    vel: [1.0, 1.5]     # [m/s]
 
 init_state:
   pos: [0., 0., 0.38] # x,y,z [m]
@@ -133,9 +133,9 @@ rewards:
     action_rate: -0.01
     stand_still: -0.0
     dof_pos_limits: -10.0
-    progress: 0.5
+    progress: 2.0
     tracking_vel: 1.0 # perhaps change to just forward velocity vector
-    success: 100.
+    success: 10.
   
   only_positive_rewards: true # negative total rewards are clipped at zero (avoid early termination problem)
   dist_threshold: 0.8
