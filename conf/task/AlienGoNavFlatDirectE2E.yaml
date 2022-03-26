@@ -3,11 +3,9 @@ seed: ${..seed}
 
 env:
   num_envs: ${resolve_default:4096,${...num_envs}}
-  num_observations: 11
-  num_ll_observations: 48
+  num_observations: 48
   num_privileged_obs: null
-  num_actions: 3
-  num_ll_actions: 12
+  num_actions: 12
   env_spacing: 3
   send_timeouts: true
   episode_length_s: 20
@@ -49,12 +47,12 @@ terrain:
 commands:
   curriculum: False
   max_curriculum: 1.
-  num_commands: 2 # default: goal_x, goal_y
+  num_commands: 3 # default: goal_x, goal_y, vel
   resampling_time: 20 # time before command is changed[s]
   ranges:
-    goal_x: [-10., 10.]    # [m]
-    goal_y: [-10., 10.]    # [m]
-  loco_net: "{LEGGED_GYM_ROOT_DIR}/resources/loco_nets/aliengo_plane.pt"
+    goal_x: [1., 5.] # [m]
+    goal_y: [-5., 5.] # [m]
+    vel: [1.0, 1.5]     # [m/s]
 
 init_state:
   pos: [0., 0., 0.38] # x,y,z [m]
@@ -133,9 +131,11 @@ rewards:
     collision: -1.0
     feet_stumble: -0.0
     action_rate: -0.01
+    stand_still: -0.0
     dof_pos_limits: -10.0
-    progress: 10.0
-    success: 1000.0
+    progress: 2.0
+    tracking_vel: 1.0 # perhaps change to just forward velocity vector
+    success: 10.
   
   only_positive_rewards: true # negative total rewards are clipped at zero (avoid early termination problem)
   dist_threshold: 0.8
@@ -148,16 +148,11 @@ rewards:
 
 normalization:
   obs_scale:
-    pos: 1.0
     lin_vel: 2.0
     ang_vel: 0.25
     dof_pos: 1.0
     dof_vel: 0.05
     height_measurements: 5.0
-  act_scales:       # intermediate scales
-    lin_vel_x: 1.0
-    lin_vel_y: 1.0
-    ang_vel_yaw: 0.0 # 1.5
   clip_observations: 100.
   clip_actions: 100.
 
@@ -165,7 +160,6 @@ noise:
   add_noise: true
   noise_level: 1. # scale other values
   noise_scales:
-    pos: 0.05
     dof_pos: 0.01
     dof_vel: 1.5
     lin_vel: 0.1

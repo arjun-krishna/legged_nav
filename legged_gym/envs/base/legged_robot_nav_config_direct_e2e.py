@@ -3,11 +3,9 @@ from .base_config import BaseConfig
 class LeggedRobotNavCfg(BaseConfig):
     class env:
         num_envs = 4096
-        num_observations = 14
-        num_ll_observations = 48
+        num_observations = 235
         num_privileged_obs = None # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise 
-        num_actions = 3   # command_vx, command_vy, commang_wz
-        num_ll_actions = 3 # dof actions
+        num_actions = 12
         env_spacing = 3.  # not used with heightfields/trimeshes 
         send_timeouts = True # send time out information to the algorithm
         episode_length_s = 20 # episode length in seconds
@@ -64,12 +62,12 @@ class LeggedRobotNavCfg(BaseConfig):
     class commands:
         curriculum = False
         max_curriculum = 1.
-        num_commands = 2 # [m]default: goal_x, goal_y
+        num_commands = 3 # default: goal_x, goal_y, vel
         resampling_time = 20. # time before command are changed[s]
         class ranges:
-            goal_x = [-5., 5.]       # [m]
-            goal_y = [-5., 5.]       # [m]
-        loco_net = ""
+            goal_x = [-5.0, 5.0] # min max [m]
+            goal_y = [-5.0, 5.0] # min max [m]
+            vel = [0.1, 1.0] # min max [m/s]
 
     class init_state:
         pos = [0.0, 0.0, 1.] # x,y,z [m]
@@ -134,7 +132,9 @@ class LeggedRobotNavCfg(BaseConfig):
             collision = -1.
             feet_stumble = -0.0 
             action_rate = -0.01
+            stand_still = -0.
             progress = 1.0
+            tracking_vel = 0.01
             success = 10.0
 
         only_positive_rewards = True # if true negative total rewards are clipped at zero (avoids early termination problems)
@@ -148,16 +148,11 @@ class LeggedRobotNavCfg(BaseConfig):
 
     class normalization:
         class obs_scales:
-            pos = 1.0
             lin_vel = 2.0
             ang_vel = 0.25
             dof_pos = 1.0
             dof_vel = 0.05
             height_measurements = 5.0
-        class act_scales:       # intermediate scales
-            lin_vel_x = 1.0
-            lin_vel_y = 1.0
-            ang_vel_yaw = 1.5
         clip_observations = 100.
         clip_actions = 100.
 
@@ -165,7 +160,6 @@ class LeggedRobotNavCfg(BaseConfig):
         add_noise = True
         noise_level = 1.0 # scales other values
         class noise_scales:
-            pos = 0.05
             dof_pos = 0.01
             dof_vel = 1.5
             lin_vel = 0.1
@@ -203,9 +197,13 @@ class LeggedRobotNavCfgPPO(BaseConfig):
     runner_class_name = 'OnPolicyRunner'
     class policy:
         init_noise_std = 1.0
-        actor_hidden_dims = [64, 64]
-        critic_hidden_dims = [64, 64]
+        actor_hidden_dims = [512, 256, 128]
+        critic_hidden_dims = [512, 256, 128]
         activation = 'elu' # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
+        # only for 'ActorCriticRecurrent':
+        # rnn_type = 'lstm'
+        # rnn_hidden_size = 512
+        # rnn_num_layers = 1
         
     class algorithm:
         # training params
