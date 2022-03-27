@@ -71,7 +71,7 @@ class LeggedRobotNav(BaseTask):
         self.debug_viz = cfg.env.debug_viz
         self.init_done = False
         self._parse_cfg(self.cfg)
-        super().__init__(self.cfg, sim_params, physics_engine, sim_device, headless)
+        super().__init__(self.cfg, sim_params, physics_engine, sim_device, headless)        
 
         if not self.headless:
             self.set_camera(self.cfg.viewer.pos, self.cfg.viewer.lookat)
@@ -245,7 +245,7 @@ class LeggedRobotNav(BaseTask):
                                      ),dim=-1)
         # add perceptive inputs if not blind
         if self.cfg.terrain.measure_heights:
-            heights = torch.clip(self.root_states[:, 2].unsqueeze(1) - 0.5 - self.measured_heights, -1, 1.) * self.obs_scales.height_measurements
+            heights = torch.clip(self.actor_root_states[:, 2].unsqueeze(1) - 0.5 - self.measured_heights, -1, 1.) * self.obs_scales.height_measurements
             self.obs_ll_buf = torch.cat((self.obs_ll_buf, heights), dim=-1)
         if self.add_noise:
             self.obs_ll_buf += (2 * torch.rand_like(self.obs_ll_buf) - 1) * self.noise_scale_ll_vec
@@ -266,6 +266,7 @@ class LeggedRobotNav(BaseTask):
             self._create_trimesh()
         elif mesh_type is not None:
             raise ValueError("Terrain mesh type not recognised. Allowed types are [None, plane, heightfield, trimesh]")
+        self.obstacle_manager = ObstacleManager(self.cfg.obstacle, self.device)
         self._create_envs()
 
     def set_camera(self, position, lookat):
@@ -396,7 +397,7 @@ class LeggedRobotNav(BaseTask):
         self.dof_pos[env_ids] = self.default_dof_pos * torch_rand_float(0.5, 1.5, (len(env_ids), self.num_dof), device=self.device)
         self.dof_vel[env_ids] = 0.
 
-        env_ids_int32 = env_ids.to(dtype=torch.int32)
+        env_ids_int32 = env_ids.to(dtype=torch.int32) * (self.num_obstacles + 1)
         self.gym.set_dof_state_tensor_indexed(self.sim,
                                               gymtorch.unwrap_tensor(self.dof_state),
                                               gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
@@ -518,6 +519,7 @@ class LeggedRobotNav(BaseTask):
 
         # create some wrapper tensors for different slices
         self.root_states = gymtorch.wrap_tensor(actor_root_state)
+        self.actor_root_states = self.root_states[::(self.num_obstacles+1)]
         self.dof_state = gymtorch.wrap_tensor(dof_state_tensor)
         self.dof_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 0]
         self.dof_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 1]
@@ -729,11 +731,11 @@ class LeggedRobotNav(BaseTask):
             self.gym.set_actor_rigid_body_properties(env_handle, robot_handle, body_props, recomputeInertia=True)
 
             # obstacle creator
-            # self.obstacle_handles.append(self.obstacle_manager.create_obstacles(self.gym, self.sim, env_handle, i))
+            self.obstacle_handles.append(self.obstacle_manager.create_obstacles(self.gym, self.sim, env_handle, i))
 
             self.envs.append(env_handle)
             self.actor_handles.append(robot_handle)
-        self.num_obstacles = 0 #self.obstacle_manager.get_num_obstacles()
+        self.num_obstacles = self.obstacle_manager.get_num_obstacles()
 
         self.feet_indices = torch.zeros(len(feet_names), dtype=torch.long, device=self.device, requires_grad=False)
         for i in range(len(feet_names)):
@@ -788,8 +790,6 @@ class LeggedRobotNav(BaseTask):
 
         self.cfg.domain_rand.push_interval = np.ceil(self.cfg.domain_rand.push_interval_s / self.dt)
 
-        # self.obstacle_manager = ObstacleManager(self.cfg.obstacle)
-
     def _draw_debug_vis(self):
         """ Draws visualizations for dubugging (slows down simulation a lot).
             Default behaviour: draws height measurement points
@@ -823,7 +823,7 @@ class LeggedRobotNav(BaseTask):
         self.gym.refresh_rigid_body_state_tensor(self.sim)
         sphere_geom = gymutil.WireframeSphereGeometry(0.02, 4, 4, None, color=(1, 1, 0))
         for i in range(self.num_envs):
-            base_pos = (self.root_states[i, :3]).cpu().numpy()
+            base_pos = (self.actor_root_states[i, :3]).cpu().numpy()
             heights = self.measured_heights[i].cpu().numpy()
             height_points = quat_apply_yaw(self.base_quat[i].repeat(heights.shape[0]), self.height_points[i]).cpu().numpy()
             for j in range(heights.shape[0]):
@@ -868,9 +868,9 @@ class LeggedRobotNav(BaseTask):
             raise NameError("Can't measure height with terrain mesh type 'none'")
 
         if env_ids:
-            points = quat_apply_yaw(self.base_quat[env_ids].repeat(1, self.num_height_points), self.height_points[env_ids]) + (self.root_states[env_ids, :3]).unsqueeze(1)
+            points = quat_apply_yaw(self.base_quat[env_ids].repeat(1, self.num_height_points), self.height_points[env_ids]) + (self.actor_root_states[env_ids, :3]).unsqueeze(1)
         else:
-            points = quat_apply_yaw(self.base_quat.repeat(1, self.num_height_points), self.height_points) + (self.root_states[:, :3]).unsqueeze(1)
+            points = quat_apply_yaw(self.base_quat.repeat(1, self.num_height_points), self.height_points) + (self.actor_root_states[:, :3]).unsqueeze(1)
 
         points += self.terrain.cfg.border_size
         points = (points/self.terrain.cfg.horizontal_scale).long()
@@ -888,9 +888,9 @@ class LeggedRobotNav(BaseTask):
         return heights.view(self.num_envs, -1) * self.terrain.cfg.vertical_scale
 
     #------------ obstacle utils -----------------
-    @property
-    def actor_root_states(self):
-        return self.root_states #[::(self.num_obstacles+1)]
+    # @property
+    # def actor_root_states(self):
+    #     return self.root_states[::(self.num_obstacles+1)]
 
     #------------ reward functions----------------
     def _reward_lin_vel_z(self):
@@ -907,7 +907,7 @@ class LeggedRobotNav(BaseTask):
 
     def _reward_base_height(self):
         # Penalize base height away from target
-        base_height = torch.mean(self.root_states[:, 2].unsqueeze(1) - self.measured_heights, dim=1)
+        base_height = torch.mean(self.actor_root_states[:, 2].unsqueeze(1) - self.measured_heights, dim=1)
         return torch.square(base_height - self.cfg.rewards.base_height_target)
     
     def _reward_torques(self):

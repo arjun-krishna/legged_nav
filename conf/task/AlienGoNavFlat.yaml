@@ -15,7 +15,7 @@ env:
 
 obstacle:
   static:
-    num: 0
+    num: 1
   dynamic:
     num: 0
   magic_spawn:
@@ -52,8 +52,8 @@ commands:
   num_commands: 2 # default: goal_x, goal_y
   resampling_time: 20 # time before command is changed[s]
   ranges:
-    goal_x: [-10., 10.]    # [m]
-    goal_y: [-10., 10.]    # [m]
+    goal_x: [-7., 7.]    # [m]
+    goal_y: [-7., 7.]    # [m]
   loco_net: "{LEGGED_GYM_ROOT_DIR}/resources/loco_nets/aliengo_plane.pt"
 
 init_state:

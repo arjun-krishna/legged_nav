@@ -2,6 +2,7 @@ from typing import Tuple
 import numpy as np
 from numpy.random import choice
 from scipy import interpolate
+import torch
 from isaacgym import gymapi
 
 from legged_gym.envs.base.legged_robot_nav_config import LeggedRobotNavCfg
@@ -10,8 +11,9 @@ class ObstacleManager:
     """
     Obstacle spawn manager
     """
-    def __init__(self, cfg: LeggedRobotNavCfg.obstacle) -> None:
+    def __init__(self, cfg: LeggedRobotNavCfg.obstacle, device: str) -> None:
         self.cfg = cfg
+        self.device = device
 
     def _create_obstacle_asset(self, gym, sim, w_range, h_range, d_range):
         width = np.random.uniform(low=w_range[0], high=w_range[1])
@@ -24,11 +26,11 @@ class ObstacleManager:
     def create_obstacles(self, gym, sim, env_handle, i):
         # i - collision group
         start_pose = gymapi.Transform()
-        start_pose.p = gymapi.Vec3(0, 0, -100)
+        start_pose.p = gymapi.Vec3(0, 0, 50)
         obstacles = {
             'static': {
-                'handles': [],
                 'spawn_range': [1.0, 2.0],
+                'handles': [],
             },
             'magic_spawn': {
                 'refresh_s': None,
@@ -63,6 +65,16 @@ class ObstacleManager:
             obstacles['dynamic']['refresh_s'] = self.cfg.dynamic.refresh_s
             obstacles['dynamic']['spawn_range'] = self.cfg.dynamic.spawn_range
         return obstacles
+
+    def reset_obstacles(obstacle_handles, env_ids):
+        # env_id -> [(env_id+1):(env_id:1)+num_obstacles)
+        for env_id in env_ids:
+            if len(info['static']['handles']): # handle static objects
+                pass
+
+    def refresh_obstacles(infos):
+        # refresh actor positions for moving obstacles
+        pass
 
     def get_num_obstacles(self):
         return self.cfg.static.num + self.cfg.magic_spawn.num + self.cfg.dynamic.num
