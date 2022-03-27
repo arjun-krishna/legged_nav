@@ -148,6 +148,7 @@ class LeggedRobotNav(BaseTask):
     def check_termination(self):
         """ Check if environments need to be reset
         """
+        # TODO allow continuation on some contact without fall?
         self.reset_buf = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1., dim=1)
         self.time_out_buf = self.episode_length_buf > self.max_episode_length # no terminal reward for time-outs
         self.reset_buf |= self.time_out_buf
@@ -423,6 +424,15 @@ class LeggedRobotNav(BaseTask):
         self.gym.set_actor_root_state_tensor_indexed(self.sim,
                                                      gymtorch.unwrap_tensor(self.root_states),
                                                      gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
+        # obstacle resets
+        ids, obstacle_pos_vel = self.obstacle_manager.reset_obstacles(self.obstacle_handles, env_ids)
+        self.root_states[ids, :3] = obstacle_pos_vel[:,:3]
+        self.root_states[ids, :3] += self.env_origins[env_ids]
+        self.root_states[ids, 7:10] = obstacle_pos_vel[:,3:]
+        ids_int32 = torch.tensor(ids, device=self.device).to(dtype=torch.int32) # update robot root states
+        self.gym.set_actor_root_state_tensor_indexed(self.sim,
+                                                     gymtorch.unwrap_tensor(self.root_states),
+                                                     gymtorch.unwrap_tensor(ids_int32), len(ids_int32))
 
     def _push_robots(self):
         """ Random pushes the robots. Emulates an impulse by setting a randomized base velocity. 
@@ -809,12 +819,14 @@ class LeggedRobotNav(BaseTask):
             d = to_target[i].cpu().numpy()
             bv = self.base_lin_vel[i,:3].cpu().numpy(); bv[2] = 0
             h = hv[i]
+            o = self.env_origins[i,:3].cpu().numpy(); o[2] = 0
 
             gymutil.draw_line(gymapi.Vec3(*(p+d)), gymapi.Vec3(*(p+d+5*u)), gymapi.Vec3(1, 1, 0), self.gym, self.viewer, self.envs[i]) # target pole
             gymutil.draw_line(gymapi.Vec3(*p), gymapi.Vec3(*(p+d)), gymapi.Vec3(1, 0, 1), self.gym, self.viewer, self.envs[i]) # pos -> target
             gymutil.draw_line(gymapi.Vec3(*(p+0.1*u)), gymapi.Vec3(*(p+0.1*u+2*h)), gymapi.Vec3(1, 0, 0), self.gym, self.viewer, self.envs[i])  # heading
             gymutil.draw_line(gymapi.Vec3(*(p+0.1*u)), gymapi.Vec3(*(p+0.1*u+2*bv)), gymapi.Vec3(0, 1, 0), self.gym, self.viewer, self.envs[i]) # velocity
             gymutil.draw_line(gymapi.Vec3(*(p+0.1*u)), gymapi.Vec3(*(p+0.1*u+2*x)), gymapi.Vec3(0, 0, 1), self.gym, self.viewer, self.envs[i]) # commanded velocity
+            gymutil.draw_line(gymapi.Vec3(*o), gymapi.Vec3(*(o+u)), gymapi.Vec3(0, 1, 1), self.gym, self.viewer, self.envs[i]) # env_origin
 
         # draw height lines
         if not self.cfg.terrain.measure_heights:

@@ -16,8 +16,8 @@ class LeggedRobotNavCfg(BaseConfig):
     class obstacle:
         class static:
             num = 0
-            height = [0.1, 5.0] # [m]
-            width = [0.1, 2.0]  # [m]
+            height = [5.0, 5.0] # [m]
+            width = [2.0, 2.0]  # [m]
             depth = [0.1, 0.1]  # [m]
             spawn_range = [1.0, 2.0] # [m]
         class dynamic:

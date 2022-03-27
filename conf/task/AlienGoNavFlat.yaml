@@ -16,6 +16,9 @@ env:
 obstacle:
   static:
     num: 1
+    height: [1.0, 2.0]
+    width: [0.5, 0.5]
+    depth: [0.5, 0.5]
   dynamic:
     num: 0
   magic_spawn:
