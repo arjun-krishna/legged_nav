@@ -46,6 +46,7 @@ from typing import Tuple, Dict
 from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.envs.base.base_task import BaseTask
 from legged_gym.utils.terrain import Terrain
+from legged_gym.utils.lidar import Lidar2D
 from legged_gym.utils.obstacle import ObstacleManager
 from legged_gym.utils.math import quat_apply_yaw, wrap_to_pi, torch_rand_sqrt_float
 from legged_gym.utils.helpers import class_to_dict
@@ -75,6 +76,7 @@ class LeggedRobotNav(BaseTask):
 
         if not self.headless:
             self.set_camera(self.cfg.viewer.pos, self.cfg.viewer.lookat)
+        self.lidar_sensor = Lidar2D(self.num_envs, self.obstacle_manager, self.device, 60, 360.0, 5.0)
         self._init_buffers()
         self._prepare_reward_function()
         self.loco_net = torch.jit.load(cfg.commands.loco_net.format(LEGGED_GYM_ROOT_DIR=LEGGED_GYM_ROOT_DIR), map_location=self.device)
@@ -427,7 +429,7 @@ class LeggedRobotNav(BaseTask):
         # obstacle resets
         ids, obstacle_pos_vel = self.obstacle_manager.reset_obstacles(self.obstacle_handles, env_ids)
         self.root_states[ids, :3] = obstacle_pos_vel[:,:3]
-        self.root_states[ids, :3] += self.env_origins[env_ids]
+        self.root_states[ids, :3] += self.env_origins[env_ids].repeat((self.obstacle_manager.cfg.static.num,1))
         self.root_states[ids, 7:10] = obstacle_pos_vel[:,3:]
         ids_int32 = torch.tensor(ids, device=self.device).to(dtype=torch.int32) # update robot root states
         self.gym.set_actor_root_state_tensor_indexed(self.sim,
@@ -813,6 +815,24 @@ class LeggedRobotNav(BaseTask):
                 self.actor_root_states[:,3:7], self.inv_start_rot, to_target, self.basis_vec0, self.basis_vec1, 2)
         hv = heading_vec.cpu().numpy()
         u = np.array([0, 0, 1])
+
+        lidar_info = self.lidar_sensor.simulate_lidar(self.root_states) # (num_envs, num_reflections)
+
+        # robot_xy - (num_envs, 2)
+        robot_xy, robot_quat = self.actor_root_states[:,:2], self.actor_root_states[:,3:7]
+        robot_yaw = self.lidar_sensor.yaw_from_quat(robot_quat) # (num_envs,)
+        angles = []
+        for i in range(self.lidar_sensor.num_reflections):
+            angles.append(robot_yaw + i*self.lidar_sensor.resolution)
+        angles = torch.vstack(angles).t()  # (num_envs, num_reflections)
+
+        # (num_envs, num_reflections, 4)
+        laser_segments = robot_xy.reshape((self.num_envs, 1, 2)).repeat((1, self.lidar_sensor.num_reflections, 2))
+        # print("**debug", lidar_info.shape)
+        # print("**debug", (torch.cos(angles) * lidar_info).shape)
+        laser_segments[:,:,2] += torch.cos(angles) * lidar_info
+        laser_segments[:,:,3] += torch.sin(angles) * lidar_info
+
         for i in range(self.num_envs):
             p = self.actor_root_states[i,:3].cpu().numpy(); p[2] = 0
             x = np.append(self.nav_commands[i,:2].cpu().numpy(), 0)
@@ -827,6 +847,11 @@ class LeggedRobotNav(BaseTask):
             gymutil.draw_line(gymapi.Vec3(*(p+0.1*u)), gymapi.Vec3(*(p+0.1*u+2*bv)), gymapi.Vec3(0, 1, 0), self.gym, self.viewer, self.envs[i]) # velocity
             gymutil.draw_line(gymapi.Vec3(*(p+0.1*u)), gymapi.Vec3(*(p+0.1*u+2*x)), gymapi.Vec3(0, 0, 1), self.gym, self.viewer, self.envs[i]) # commanded velocity
             gymutil.draw_line(gymapi.Vec3(*o), gymapi.Vec3(*(o+u)), gymapi.Vec3(0, 1, 1), self.gym, self.viewer, self.envs[i]) # env_origin
+
+            for j in range(self.lidar_sensor.num_reflections):
+                s = np.append(laser_segments[i,j,:2].cpu().numpy(), 0)
+                t = np.append(laser_segments[i,j,2:].cpu().numpy(), 0)
+                gymutil.draw_line(gymapi.Vec3(*(s+0.05*u)), gymapi.Vec3(*(t+0.05*u)), gymapi.Vec3(0.8, 0.8, 0.8), self.gym, self.viewer, self.envs[i]) # env_origin
 
         # draw height lines
         if not self.cfg.terrain.measure_heights:
