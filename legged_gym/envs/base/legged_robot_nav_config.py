@@ -37,10 +37,10 @@ class LeggedRobotNavCfg(BaseConfig):
             spawn_range = [1.0, 2.0] # [m]
 
     class lidar:
-        num_reflections = 360  #
+        use_lidar = False     # [enable lidar concat]
+        num_reflections = 60  # [int] rays to shoot
         fov = 360              # [deg]
-        max_laser_dist = 12    # [m]
-        unoccupied_points_per_meter = 0.5 # beam filling configuration
+        max_laser_dist = 5.0   # [m]
 
     class terrain:
         mesh_type = 'trimesh' # "heightfield" # none, plane, heightfield or trimesh

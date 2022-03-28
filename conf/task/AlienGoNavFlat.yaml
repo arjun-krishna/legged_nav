@@ -24,6 +24,12 @@ obstacle:
   magic_spawn:
     num: 0
 
+lidar:
+  use_lidar: false
+  num_reflections: 60   # [int] rays to shoot
+  fov: 360              # [deg]
+  max_laser_dist: 5.0   # [m]
+
 terrain:
   mesh_type: 'plane'
   horizontal_scale: 0.1 # [m]

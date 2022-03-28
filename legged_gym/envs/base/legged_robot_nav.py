@@ -76,7 +76,9 @@ class LeggedRobotNav(BaseTask):
 
         if not self.headless:
             self.set_camera(self.cfg.viewer.pos, self.cfg.viewer.lookat)
-        self.lidar_sensor = Lidar2D(self.num_envs, self.obstacle_manager, self.device, 60, 360.0, 5.0)
+        self.lidar_sensor = Lidar2D(
+            self.num_envs, self.obstacle_manager, self.device,
+            cfg.lidar.num_reflections, cfg.lidar.fov, cfg.lidar.max_laser_dist)
         self._init_buffers()
         self._prepare_reward_function()
         self.loco_net = torch.jit.load(cfg.commands.loco_net.format(LEGGED_GYM_ROOT_DIR=LEGGED_GYM_ROOT_DIR), map_location=self.device)
@@ -819,17 +821,10 @@ class LeggedRobotNav(BaseTask):
         lidar_info = self.lidar_sensor.simulate_lidar(self.root_states) # (num_envs, num_reflections)
 
         # robot_xy - (num_envs, 2)
-        robot_xy, robot_quat = self.actor_root_states[:,:2], self.actor_root_states[:,3:7]
-        robot_yaw = self.lidar_sensor.yaw_from_quat(robot_quat) # (num_envs,)
-        angles = []
-        for i in range(self.lidar_sensor.num_reflections):
-            angles.append(robot_yaw + i*self.lidar_sensor.resolution)
-        angles = torch.vstack(angles).t()  # (num_envs, num_reflections)
-
+        angles = self.lidar_sensor.lidar_angles(self.root_states) # (num_envs, num_reflections)
+        robot_xy = self.actor_root_states[:,:2]
         # (num_envs, num_reflections, 4)
         laser_segments = robot_xy.reshape((self.num_envs, 1, 2)).repeat((1, self.lidar_sensor.num_reflections, 2))
-        # print("**debug", lidar_info.shape)
-        # print("**debug", (torch.cos(angles) * lidar_info).shape)
         laser_segments[:,:,2] += torch.cos(angles) * lidar_info
         laser_segments[:,:,3] += torch.sin(angles) * lidar_info
 

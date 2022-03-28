@@ -71,6 +71,17 @@ class Lidar2D:
         return torch.where((condx_a & condx_b & condy_a & condy_b), torch.norm(intersct - a[...,:2], dim=-1), torch.tensor(self.max_dist).to(self.device))
 
 
+    def lidar_angles(self, root_states):
+        robot_xy, robot_quat = root_states[::(1+self.num_obstacles),:2], root_states[::(1+self.num_obstacles),3:7]
+        robot_yaw = self.yaw_from_quat(robot_quat) # (num_envs,)
+
+        angles = []
+        for i in range(self.num_reflections):
+            angles.append(robot_yaw + i*self.resolution)
+        angles = torch.vstack(angles).t()  # (num_envs, num_reflections)
+        return angles
+
+
     def simulate_lidar(self, root_states):
         # root_states - (pos, rot, vel, ang)
         dist = self.max_dist * torch.ones((self.num_envs, self.num_reflections), device=self.device)
@@ -79,13 +90,8 @@ class Lidar2D:
             return dist
 
         # robot_xy - (num_envs, 2)
-        robot_xy, robot_quat = root_states[::(1+self.num_obstacles),:2], root_states[::(1+self.num_obstacles),3:7]
-        robot_yaw = self.yaw_from_quat(robot_quat) # (num_envs,)
-
-        angles = []
-        for i in range(self.num_reflections):
-            angles.append(robot_yaw + i*self.resolution)
-        angles = torch.vstack(angles).t()  # (num_envs, num_reflections)
+        robot_xy = root_states[::(1+self.num_obstacles),:2]
+        angles = self.lidar_angles(root_states)
 
         # laser_segments - (num_envs, num_reflections, 4)
         laser_segments = robot_xy.reshape((self.num_envs, 1, 2)).repeat((1, self.num_reflections, 2))
