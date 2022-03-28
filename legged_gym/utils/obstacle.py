@@ -16,7 +16,7 @@ class ObstacleManager:
         self.cfg = cfg
         self.device = device
 
-        self.asset_shapes = torch.zeros((self.get_num_obstacles(), 3)).to(self.device)
+        self.asset_shapes = torch.zeros((self.get_num_obstacles(), 3)).to(self.device) # TODO bug fix to maintain shape for each env
 
     def _create_obstacle_asset(self, gym, sim, w_range, h_range, d_range):
         width = np.random.uniform(low=w_range[0], high=w_range[1])

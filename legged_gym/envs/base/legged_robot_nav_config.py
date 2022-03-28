@@ -178,6 +178,7 @@ class LeggedRobotNavCfg(BaseConfig):
             ang_vel = 0.2
             gravity = 0.05
             height_measurements = 0.1
+            lidar_measurements = 0.1
 
     # viewer camera:
     class viewer:

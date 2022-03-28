@@ -76,6 +76,7 @@ class LeggedRobotNav(BaseTask):
 
         if not self.headless:
             self.set_camera(self.cfg.viewer.pos, self.cfg.viewer.lookat)
+        self.use_lidar = cfg.lidar.use_lidar
         self.lidar_sensor = Lidar2D(
             self.num_envs, self.obstacle_manager, self.device,
             cfg.lidar.num_reflections, cfg.lidar.fov, cfg.lidar.max_laser_dist)
@@ -158,8 +159,8 @@ class LeggedRobotNav(BaseTask):
         self.reset_buf |= self.time_out_buf
 
         dist_target = torch.norm(self.target[:,:2] - self.actor_root_states[:,:2], dim=-1)
-        target_reached = dist_target < self.cfg.rewards.dist_threshold
-        self.reset_buf |= target_reached
+        self.target_reached = dist_target < self.cfg.rewards.dist_threshold
+        self.reset_buf |= self.target_reached
 
     def reset_idx(self, env_ids):
         """ Reset some environments.
@@ -234,6 +235,9 @@ class LeggedRobotNav(BaseTask):
                                   self.base_ang_vel * self.obs_scales.ang_vel,
                                   self.projected_gravity
                                   ),dim=-1)
+        if self.use_lidar:
+            lidar_measurements = self.lidar_sensor.simulate_lidar(self.root_states)
+            self.obs_buf = torch.cat((self.obs_buf, lidar_measurements), dim=-1)
         if self.add_noise:
             self.obs_buf += (2 * torch.rand_like(self.obs_buf) - 1) * self.noise_scale_vec
     
@@ -517,6 +521,8 @@ class LeggedRobotNav(BaseTask):
         noise_vec[2:5] = noise_scales.lin_vel * noise_level * self.obs_scales.lin_vel
         noise_vec[5:8] = noise_scales.ang_vel * noise_level * self.obs_scales.ang_vel
         noise_vec[8:11] = noise_scales.gravity * noise_level
+        if self.use_lidar:
+            noise_vec[11:] = noise_scales.lidar_measurements * noise_level
         return noise_vec
 
     #----------------------------------------
@@ -965,7 +971,7 @@ class LeggedRobotNav(BaseTask):
     
     def _reward_termination(self):
         # Terminal reward / penalty
-        return self.reset_buf * ~self.time_out_buf
+        return self.reset_buf * ~self.time_out_buf * ~self.target_reached
     
     def _reward_dof_pos_limits(self):
         # Penalize dof positions too close to the limit
@@ -1012,9 +1018,7 @@ class LeggedRobotNav(BaseTask):
         return self.potentials - self.prev_potentials
 
     def _reward_success(self):
-        dist_target = torch.norm(self.target[:,:2] - self.actor_root_states[:,:2], dim=-1)
-        target_reached = dist_target < self.cfg.rewards.dist_threshold
-        return target_reached
+        return self.target_reached
 
 
 @torch.jit.script

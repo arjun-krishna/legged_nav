@@ -2,8 +2,8 @@ seed: ${..seed}
 runner_class_name: 'OnPolicyRunner'
 policy:
   init_noise_std: 1.0
-  actor_hidden_dims: [64, 64, 32]
-  critic_hidden_dims: [64, 64, 32]
+  actor_hidden_dims: [128, 256, 64]
+  critic_hidden_dims: [128, 256, 64]
   activation: 'elu' # elu, relu, selu, crelu, lrelu, tanh, sigmoid
 
 algorithm:
@@ -24,7 +24,7 @@ runner:
   policy_class_name: 'ActorCritic'
   algorithm_class_name: 'PPO'
   num_steps_per_env: 24 # per iteration
-  max_iterations: ${resolve_default:400,${...max_iterations}}
+  max_iterations: ${resolve_default:500,${...max_iterations}}
 
   # logging
   save_interval: 50
