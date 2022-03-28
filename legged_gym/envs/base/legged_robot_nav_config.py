@@ -36,6 +36,12 @@ class LeggedRobotNavCfg(BaseConfig):
             refresh_s = 4         # [s]
             spawn_range = [1.0, 2.0] # [m]
 
+    class lidar:
+        num_reflections = 360  #
+        fov = 360              # [deg]
+        max_laser_dist = 12    # [m]
+        unoccupied_points_per_meter = 0.5 # beam filling configuration
+
     class terrain:
         mesh_type = 'trimesh' # "heightfield" # none, plane, heightfield or trimesh
         horizontal_scale = 0.1 # [m]
