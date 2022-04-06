@@ -3,7 +3,7 @@ seed: ${..seed}
 
 env:
   num_envs: ${resolve_default:384,${...num_envs}}
-  num_observations: 71 # 11 (60 lidar dist)
+  num_observations: 72 # 12 (60 lidar dist)
   num_ll_observations: 48
   num_privileged_obs: null
   num_actions: 3
@@ -62,8 +62,8 @@ commands:
   num_commands: 2 # default: goal_x, goal_y
   resampling_time: 20 # time before command is changed[s]
   ranges:
-    goal_x: [-7., 7.]    # [m]
-    goal_y: [-7., 7.]    # [m]
+    goal_x: [2., 7.] #[-7., 7.]    # [m]
+    goal_y: [-0.5, 0.5] #[-7., 7.]    # [m]
   loco_net: "{LEGGED_GYM_ROOT_DIR}/resources/loco_nets/aliengo_plane.pt"
 
 init_state:
@@ -146,9 +146,10 @@ rewards:
     dof_pos_limits: -10.0
     progress: 10.0
     success: 1000.0
+    relative_yaw: 0.5
   
   only_positive_rewards: true # negative total rewards are clipped at zero (avoid early termination problem)
-  dist_threshold: 0.8
+  dist_threshold: 0.5
   tracking_sigma: 0.25 # tracking reward = exp(-error^2/sigma)
   soft_dof_pos_limit: 0.9
   soft_dof_vel_limit: 1.
@@ -167,7 +168,7 @@ normalization:
   act_scales:       # intermediate scales
     lin_vel_x: 1.0
     lin_vel_y: 1.0
-    ang_vel_yaw: 0.0 # 1.5
+    ang_vel_yaw: 0.1 #1.5
   clip_observations: 100.
   clip_actions: 100.
 

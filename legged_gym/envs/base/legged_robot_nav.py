@@ -92,7 +92,11 @@ class LeggedRobotNav(BaseTask):
             actions (torch.Tensor): Tensor of shape (num_envs, num_actions_per_env)
         """
         clip_actions = self.cfg.normalization.clip_actions
-        self.nav_commands = torch.clip(actions, -1.0, 1.0).to(self.device)
+        # transform actions to nav_commands
+        # actions - local-xy, yaw
+        actions = torch.clip(actions, -1.0, 1.0)
+        self.nav_commands[:,:2] = quat_rotate(self.base_quat, torch.nn.functional.pad(actions[:,:2], (0,1)))[:,:2]
+        self.nav_commands[:,2] = actions[:,2]
         self.compute_ll_observations()
         clip_obs = self.cfg.normalization.clip_observations
         self.obs_ll_buf = torch.clip(self.obs_ll_buf, -clip_obs, clip_obs)
@@ -132,6 +136,7 @@ class LeggedRobotNav(BaseTask):
         self.base_lin_vel[:] = quat_rotate_inverse(self.base_quat, self.actor_root_states[:, 7:10])
         self.base_ang_vel[:] = quat_rotate_inverse(self.base_quat, self.actor_root_states[:, 10:13])
         self.projected_gravity[:] = quat_rotate_inverse(self.base_quat, self.gravity_vec)
+        self.heading_vec[:] = get_basis_vector(self.base_quat, self.basis_vec0).view(self.num_envs, 3)
 
         self._post_physics_step_callback()
 
@@ -230,7 +235,11 @@ class LeggedRobotNav(BaseTask):
     def compute_hl_observations(self):
         """ Computes HL observations
         """
-        self.obs_buf = torch.cat((self.target[:,:2] - self.base_pos[:,:2],
+        self.relative_yaw = torch.nn.functional.cosine_similarity((self.target[:,:2] - self.base_pos[:,:2]), self.heading_vec[:,:2])
+        d = self.target[:,:2] - self.base_pos[:,:2]
+        n = torch.norm(d, dim=1, keepdim=True)
+        self.obs_buf = torch.cat((n,
+                                  d / n,
                                   self.base_lin_vel * self.obs_scales.lin_vel,
                                   self.base_ang_vel * self.obs_scales.ang_vel,
                                   self.projected_gravity
@@ -517,12 +526,13 @@ class LeggedRobotNav(BaseTask):
         noise_vec = torch.zeros_like(self.obs_buf[0])
         noise_scales = self.cfg.noise.noise_scales
         noise_level = self.cfg.noise.noise_level
-        noise_vec[:2] = noise_scales.pos * noise_level * self.obs_scales.pos
-        noise_vec[2:5] = noise_scales.lin_vel * noise_level * self.obs_scales.lin_vel
-        noise_vec[5:8] = noise_scales.ang_vel * noise_level * self.obs_scales.ang_vel
-        noise_vec[8:11] = noise_scales.gravity * noise_level
+        noise_vec[0] = noise_scales.dist * noise_level * self.obs_scales.dist
+        noise_vec[1:3] = 0 # noise_scales.angle * noise_level * self.obs_scales.angle
+        noise_vec[3:6] = noise_scales.lin_vel * noise_level * self.obs_scales.lin_vel
+        noise_vec[6:9] = noise_scales.ang_vel * noise_level * self.obs_scales.ang_vel
+        noise_vec[9:12] = noise_scales.gravity * noise_level
         if self.use_lidar:
-            noise_vec[11:] = noise_scales.lidar_measurements * noise_level
+            noise_vec[12:] = noise_scales.lidar_measurements * noise_level
         return noise_vec
 
     #----------------------------------------
@@ -565,7 +575,7 @@ class LeggedRobotNav(BaseTask):
         self.last_root_vel = torch.zeros_like(self.actor_root_states[:, 7:13])
         self.last_nav_commands = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.commands = torch.zeros(self.num_envs, self.cfg.commands.num_commands, dtype=torch.float, device=self.device, requires_grad=False) # goal x, goal y
-        self.commands_scale = torch.tensor([self.obs_scales.pos, self.obs_scales.pos], device=self.device, requires_grad=False,) # TODO change this
+        self.commands_scale = torch.tensor([self.obs_scales.dist, self.obs_scales.dist], device=self.device, requires_grad=False,) # TODO change this
         self.nav_commands = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.nav_commands_scale = torch.tensor([self.act_scales.lin_vel_x, self.act_scales.lin_vel_y, self.act_scales.ang_vel_yaw], device=self.device, requires_grad=False)
         self.target = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
@@ -604,6 +614,8 @@ class LeggedRobotNav(BaseTask):
         self.basis_vec0 = to_torch([1, 0, 0], device=self.device).repeat((self.num_envs,1)) # forward
         self.basis_vec1 = to_torch([0, 0, 1], device=self.device).repeat((self.num_envs,1)) # up
         self.inv_start_rot = quat_conjugate(to_torch([0, 0, 0, 1], device=self.device)).repeat((self.num_envs, 1))
+        self.heading_vec = get_basis_vector(self.base_quat, self.basis_vec0).view(self.num_envs, 3)
+        self.relative_yaw = torch.ones(self.num_envs, device=self.device, requires_grad=False)
         # used to calculate heading vector
 
     def _prepare_reward_function(self):
@@ -819,9 +831,7 @@ class LeggedRobotNav(BaseTask):
 
         to_target = self.target[:,:3] - self.actor_root_states[:,:3]
         to_target[:,2] = 0
-        torso_quat, up_proj, heading_proj, up_vec, heading_vec = compute_heading_and_up(
-                self.actor_root_states[:,3:7], self.inv_start_rot, to_target, self.basis_vec0, self.basis_vec1, 2)
-        hv = heading_vec.cpu().numpy()
+        hv = self.heading_vec.cpu().numpy()
         u = np.array([0, 0, 1])
 
         lidar_info = self.lidar_sensor.simulate_lidar(self.root_states) # (num_envs, num_reflections)
@@ -1019,6 +1029,9 @@ class LeggedRobotNav(BaseTask):
 
     def _reward_success(self):
         return self.target_reached
+
+    def _reward_relative_yaw(self):
+        return torch.exp(-(1 - self.relative_yaw)/self.cfg.rewards.tracking_sigma)
 
 
 @torch.jit.script

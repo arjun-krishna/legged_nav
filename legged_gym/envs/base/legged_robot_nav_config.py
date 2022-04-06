@@ -3,7 +3,7 @@ from .base_config import BaseConfig
 class LeggedRobotNavCfg(BaseConfig):
     class env:
         num_envs = 4096
-        num_observations = 14
+        num_observations = 11
         num_ll_observations = 48
         num_privileged_obs = None # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise 
         num_actions = 3   # command_vx, command_vy, commang_wz
@@ -154,7 +154,8 @@ class LeggedRobotNavCfg(BaseConfig):
 
     class normalization:
         class obs_scales:
-            pos = 1.0
+            dist = 1.0
+            angle = 1.0
             lin_vel = 2.0
             ang_vel = 0.25
             dof_pos = 1.0
@@ -171,7 +172,8 @@ class LeggedRobotNavCfg(BaseConfig):
         add_noise = True
         noise_level = 1.0 # scales other values
         class noise_scales:
-            pos = 0.05
+            dist = 0.05
+            angle = 0.01
             dof_pos = 0.01
             dof_vel = 1.5
             lin_vel = 0.1
