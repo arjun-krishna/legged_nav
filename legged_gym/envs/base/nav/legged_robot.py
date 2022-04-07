@@ -92,7 +92,7 @@ class LeggedRobot(BaseTask):
             actions (torch.Tensor): Tensor of shape (num_envs, num_actions_per_env)
         """
         clip_actions = self.cfg.normalization.clip_actions
-        self.nav_commands[:,0] = torch.clip(nav_actions[:,0], 0., 1.)
+        self.nav_commands[:,0] = torch.clip(nav_actions[:,0], 0.0, 1.0)
         self.nav_commands[:,1] = torch.clip(nav_actions[:,1], -0.174, 0.174)
         self.compute_ll_observations()
         clip_obs = self.cfg.normalization.clip_observations
@@ -234,7 +234,13 @@ class LeggedRobot(BaseTask):
         """
         d = self.target[:,:2] - self.base_pos[:,:2]
         n = torch.norm(d, dim=1, keepdim=True)
-        self.obs_buf = torch.cat((n, d/n), dim=-1)
+        self.obs_buf = torch.cat((
+                            n, 
+                            d/n, 
+                            self.actor_root_states[:,7:10] * self.obs_scales.lin_vel, 
+                            self.actor_root_states[:,10:13] * self.obs_scales.ang_vel,
+                            self.actor_root_states[:,3:7]
+                        ), dim=-1)
         if self.use_lidar:
             lidar_measurements = self.lidar_sensor.simulate_lidar(self.root_states)
             self.obs_buf = torch.cat((self.obs_buf, lidar_measurements), dim=-1)
@@ -519,8 +525,11 @@ class LeggedRobot(BaseTask):
         noise_level = self.cfg.noise.noise_level
         noise_vec[0] = noise_scales.dist * noise_level * self.obs_scales.dist
         noise_vec[1:3] = 0 # TODO add meaningful angle noise (noise_scales.angle * noise_level * self.obs_scales.angle)
+        noise_vec[3:6] = noise_scales.lin_vel * noise_level * self.obs_scales.lin_vel
+        noise_vec[6:9] = noise_scales.ang_vel * noise_level * self.obs_scales.ang_vel
+        noise_vec[9:13] = noise_scales.quat * noise_level
         if self.use_lidar:
-            noise_vec[3:] = noise_scales.lidar_measurements * noise_level
+            noise_vec[13:] = noise_scales.lidar_measurements * noise_level
         return noise_vec
 
     #----------------------------------------
