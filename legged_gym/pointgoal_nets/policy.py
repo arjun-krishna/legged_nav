@@ -341,7 +341,7 @@ class RNNStateEncoder(nn.Module):
         self, x, hidden_states, masks
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         hidden_states = hidden_states.permute(1, 0, 2)
-        if x.size(0) == hidden_states.size(1): # 1
+        if x.size(0) == hidden_states.size(1):
             x, hidden_states = self.single_forward(x, hidden_states, masks)
         else:
             x, hidden_states = self.seq_forward(x, hidden_states, masks)
@@ -451,7 +451,7 @@ class PointNavResNet(nn.Module):
         self,
         backbone='resnet50',
         hidden_size=512,
-        num_layers=2
+        num_layers=2,
     ):
         super().__init__()
         self.prev_action_embedding = nn.Embedding(5, 32)
@@ -539,5 +539,5 @@ model = ExportedPolicy()
 chk = torch.load('resources/pointgoal_nets/gibson-4plus-resnet50.pth')
 model.load_state_dict(chk['state_dict'])
 
-model.act(torch.ones(1, 1, 256, 256), torch.ones(1, 3), torch.zeros(2, 1, 512), torch.zeros(1, 1, dtype=torch.int32), torch.zeros(1, 1, dtype=torch.bool))
+model.act(torch.ones(1, 1, 256, 256), torch.ones(1, 3), torch.zeros(1, 4, 512), torch.zeros(1, 1, dtype=torch.int32), torch.zeros(1, 1, dtype=torch.bool))
 """
