@@ -6,13 +6,13 @@ import torch
 from isaacgym import gymapi
 from isaacgym.torch_utils import *
 
-from legged_gym.envs.base.legged_robot_nav_config import LeggedRobotNavCfg
+from legged_gym.envs.base.nav.legged_robot_config import LeggedRobotCfg
 
 class ObstacleManager:
     """
     Obstacle spawn manager
     """
-    def __init__(self, cfg: LeggedRobotNavCfg.obstacle, device: str) -> None:
+    def __init__(self, cfg: LeggedRobotCfg.obstacle, device: str) -> None:
         self.cfg = cfg
         self.device = device
 

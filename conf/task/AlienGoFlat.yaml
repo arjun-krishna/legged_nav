@@ -1,5 +1,6 @@
 name: AlienGoFlat
 seed: ${..seed}
+base_type: default
 
 env:
   num_envs: ${resolve_default:4096,${...num_envs}}

@@ -1,6 +1,6 @@
-from .base_config import BaseConfig
+from legged_gym.envs.base.base_config import BaseConfig
 
-class LeggedRobotNavCfg(BaseConfig):
+class LeggedRobotCfg(BaseConfig):
     class env:
         num_envs = 4096
         num_observations = 11
@@ -207,7 +207,7 @@ class LeggedRobotNavCfg(BaseConfig):
             default_buffer_size_multiplier = 5
             contact_collection = 2 # 0: never, 1: last sub-step, 2: all sub-steps (default=2)
 
-class LeggedRobotNavCfgPPO(BaseConfig):
+class LeggedRobotCfgPPO(BaseConfig):
     seed = 1
     runner_class_name = 'OnPolicyRunner'
     class policy:

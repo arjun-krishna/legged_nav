@@ -1,24 +1,13 @@
-from typing import Tuple, Dict
+from typing import Tuple, Dict, Any
 from omegaconf import OmegaConf, DictConfig
-from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
-from legged_gym.envs.base.legged_robot_nav_config import LeggedRobotNavCfg, LeggedRobotNavCfgPPO
 from legged_gym.utils.helpers import class_to_dict, update_class_from_dict
 import argparse
 
 from isaacgym.gymutil import parse_device_str
 from isaacgym import gymapi
 
-def convert_hydra_cfg(cfg: DictConfig) -> Tuple[LeggedRobotCfg, LeggedRobotCfgPPO]:
-    env_cfg = LeggedRobotCfg
+def convert_hydra_cfg(cfg: DictConfig, env_cfg, train_cfg) -> Tuple[Any, Any]:
     update_class_from_dict(env_cfg, OmegaConf.to_object(cfg.task))
-    train_cfg = LeggedRobotCfgPPO
-    update_class_from_dict(train_cfg, OmegaConf.to_object(cfg.train))
-    return env_cfg, train_cfg
-
-def convert_nav_hydra_cfg(cfg: DictConfig) -> Tuple[LeggedRobotNavCfg, LeggedRobotNavCfgPPO]:
-    env_cfg = LeggedRobotNavCfg
-    update_class_from_dict(env_cfg, OmegaConf.to_object(cfg.task))
-    train_cfg = LeggedRobotNavCfgPPO
     update_class_from_dict(train_cfg, OmegaConf.to_object(cfg.train))
     return env_cfg, train_cfg
     

@@ -6,8 +6,7 @@ from omegaconf import DictConfig, OmegaConf
 
 import isaacgym
 from legged_gym import LEGGED_GYM_ROOT_DIR
-from legged_gym.envs.base.legged_robot import LeggedRobot
-from legged_gym.envs.base.legged_robot_nav import LeggedRobotNav
+from legged_gym.envs.base import base_map
 from legged_gym.envs import *
 from legged_gym.utils import task_registry, export_policy_as_jit, Logger
 import torch
@@ -106,13 +105,11 @@ OmegaConf.register_new_resolver('resolve_default', lambda default, arg: default 
 @hydra.main(config_name="config", config_path="conf/")
 def run(cfg: DictConfig):
     # print(OmegaConf.to_yaml(cfg))
+    base_type = cfg.task.base_type
     task_name = cfg.task.name
-    if 'Nav' in task_name:
-        env_cfg, train_cfg = convert_nav_hydra_cfg(cfg)
-        env_class = LeggedRobotNav
-    else:
-        env_cfg, train_cfg = convert_hydra_cfg(cfg)
-        env_class = LeggedRobot
+    env_class, env_cfg, train_cfg = base_map[base_type]
+
+    env_cfg, train_cfg = convert_hydra_cfg(cfg, env_cfg, train_cfg)
     args = get_args(cfg)
 
     if cfg.test:

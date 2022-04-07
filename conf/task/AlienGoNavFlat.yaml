@@ -1,5 +1,6 @@
 name: AlienGoNavFlat
 seed: ${..seed}
+base_type: nav
 
 env:
   num_envs: ${resolve_default:384,${...num_envs}}

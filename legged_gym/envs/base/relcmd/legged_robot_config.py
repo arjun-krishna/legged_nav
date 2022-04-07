@@ -1,6 +1,39 @@
-from .base_config import BaseConfig
+# SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+# 
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+# list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+# this list of conditions and the following disclaimer in the documentation
+# and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its
+# contributors may be used to endorse or promote products derived from
+# this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# Copyright (c) 2021 ETH Zurich, Nikita Rudin
+#
+# Modifications: Arjun Krishna
+# - specify commands in the local frame of reference (useful for navigation commands)
 
-class LeggedRobotNavCfg(BaseConfig):
+from legged_gym.envs.base.base_config import BaseConfig
+
+class LeggedRobotCfg(BaseConfig):
     class env:
         num_envs = 4096
         num_observations = 235
@@ -9,30 +42,6 @@ class LeggedRobotNavCfg(BaseConfig):
         env_spacing = 3.  # not used with heightfields/trimeshes 
         send_timeouts = True # send time out information to the algorithm
         episode_length_s = 20 # episode length in seconds
-        debug_viz = False # debug viz drawing
-    
-    class obstacle:
-        class static:
-            num = 0
-            height = [0.1, 5.0] # [m]
-            width = [0.1, 2.0]  # [m]
-            depth = [0.1, 0.1]  # [m]
-            spawn_range = [1.0, 2.0] # [m]
-        class dynamic:
-            num = 0
-            height = [0.1, 5.0]   # [m]
-            width = [0.1, 2.0]    # [m]
-            depth = [0.1, 0.2]    # [m]
-            velocity = [1.0, 2.0] # [m/s]
-            refresh_s = 4         # [s]
-            spawn_range = [1.0, 2.0] # [m]
-        class magic_spawn:
-            num = 0
-            height = [0.1, 5.0]   # [m]
-            width = [0.1, 2.0]    # [m]
-            depth = [0.1, 0.2]    # [m]
-            refresh_s = 4         # [s]
-            spawn_range = [1.0, 2.0] # [m]
 
     class terrain:
         mesh_type = 'trimesh' # "heightfield" # none, plane, heightfield or trimesh
@@ -62,12 +71,13 @@ class LeggedRobotNavCfg(BaseConfig):
     class commands:
         curriculum = False
         max_curriculum = 1.
-        num_commands = 3 # default: goal_x, goal_y, vel
-        resampling_time = 20. # time before command are changed[s]
+        num_commands = 3 # default: lin_vel_forward, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
+        resampling_time = 10. # time before command are changed[s]
+        heading_command = True # if true: compute ang vel command from heading error
         class ranges:
-            goal_x = [-5.0, 5.0] # min max [m]
-            goal_y = [-5.0, 5.0] # min max [m]
-            vel = [0.1, 1.0] # min max [m/s]
+            lin_vel_forward = [0.0, 1.0] # min max [m/s]
+            ang_vel_yaw = [-1, 1]    # min max [rad/s]
+            heading = [-3.14, 3.14]
 
     class init_state:
         pos = [0.0, 0.0, 1.] # x,y,z [m]
@@ -121,21 +131,20 @@ class LeggedRobotNavCfg(BaseConfig):
     class rewards:
         class scales:
             termination = -0.0
+            tracking_lin_vel = 1.0
+            tracking_ang_vel = 0.5
             lin_vel_z = -2.0
             ang_vel_xy = -0.05
             orientation = -0.
             torques = -0.00001
             dof_vel = -0.
             dof_acc = -2.5e-7
-            base_height = -0.
+            base_height = -0. 
             feet_air_time =  1.0
             collision = -1.
             feet_stumble = -0.0 
             action_rate = -0.01
             stand_still = -0.
-            progress = 1.0
-            tracking_vel = 0.01
-            success = 10.0
 
         only_positive_rewards = True # if true negative total rewards are clipped at zero (avoids early termination problems)
         tracking_sigma = 0.25 # tracking reward = exp(-error^2/sigma)
@@ -144,7 +153,6 @@ class LeggedRobotNavCfg(BaseConfig):
         soft_torque_limit = 1.
         base_height_target = 1.
         max_contact_force = 100. # forces above this value are penalized
-        dist_threshold = 0.8 # success threshold [m]
 
     class normalization:
         class obs_scales:
@@ -192,7 +200,7 @@ class LeggedRobotNavCfg(BaseConfig):
             default_buffer_size_multiplier = 5
             contact_collection = 2 # 0: never, 1: last sub-step, 2: all sub-steps (default=2)
 
-class LeggedRobotNavCfgPPO(BaseConfig):
+class LeggedRobotCfgPPO(BaseConfig):
     seed = 1
     runner_class_name = 'OnPolicyRunner'
     class policy:
