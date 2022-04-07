@@ -132,7 +132,7 @@ domain_rand:
 
 rewards:
   scales:
-    termination: -200.0 # collision results in termination
+    termination: -5.0 # collision results in termination
     lin_vel_z: -0.0 #-2.0
     ang_vel_xy: -0.0 #-0.05
     orientation: -0.0 #-5.0
@@ -141,13 +141,14 @@ rewards:
     dof_acc: 0.0 #!!float -2.5e-7
     base_height: -0.0
     feet_air_time: 0.0 #2.0
-    collision: -5.0
+    collision: -1.0
     feet_stumble: -0.0
     action_rate: -0.0 #-0.01
     dof_pos_limits: 0.0 #-10.0
-    progress: 10.0
-    success: 1000.0
-    relative_yaw: -5.0
+    progress: 5.0
+    success: 20.0
+    relative_yaw: 1.0
+    forward_vel: 1.0
   
   only_positive_rewards: true # negative total rewards are clipped at zero (avoid early termination problem)
   dist_threshold: 0.5
@@ -161,8 +162,8 @@ rewards:
 normalization:
   obs_scale:
     pos: 1.0
-    lin_vel: 2.0
-    ang_vel: 0.25
+    lin_vel: 1.0
+    ang_vel: 1.0
     dof_pos: 1.0
     dof_vel: 0.05
     height_measurements: 5.0
