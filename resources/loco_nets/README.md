@@ -1,1 +1,1 @@
-aliengo_plane.pt - exported policy of AlienGoFlat
+aliengo_plane.pt - exported policy of AlienGoFlatRelCmd (takes in relative commands)

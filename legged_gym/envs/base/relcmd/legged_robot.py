@@ -28,7 +28,7 @@
 #
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
 #
-# Modifications: Arjun Krishna
+# Modifications by: Arjun Krishna
 # - specify commands in the local frame of reference (useful for navigation commands)
 
 
@@ -213,10 +213,10 @@ class LeggedRobot(BaseTask):
     def compute_observations(self):
         """ Computes observations
         """
-        self.obs_buf = torch.cat((  self.base_lin_vel * self.obs_scales.lin_vel,
-                                    self.base_ang_vel  * self.obs_scales.ang_vel,
-                                    self.projected_gravity,
-                                    self.commands[:, :3] * self.commands_scale,
+        self.obs_buf = torch.cat((  self.root_states[:, 7:10] * self.obs_scales.lin_vel,
+                                    self.root_states[:, 10:13] * self.obs_scales.ang_vel,
+                                    self.root_states[:, 3:7],   # quaternion
+                                    self.commands[:, :2] * self.commands_scale, # forward vel, ang_vel_yaw
                                     (self.dof_pos - self.default_dof_pos) * self.obs_scales.dof_pos,
                                     self.dof_vel * self.obs_scales.dof_vel,
                                     self.actions
@@ -329,9 +329,7 @@ class LeggedRobot(BaseTask):
         env_ids = (self.episode_length_buf % int(self.cfg.commands.resampling_time / self.dt)==0).nonzero(as_tuple=False).flatten()
         self._resample_commands(env_ids)
         if self.cfg.commands.heading_command:
-            forward = quat_apply(self.base_quat, self.forward_vec)
-            heading = torch.atan2(forward[:, 1], forward[:, 0])
-            self.commands[:, 2] = torch.clip(0.5*wrap_to_pi(self.commands[:, 3] - heading), -1., 1.)
+            self.commands[:,1] = torch.clip(0.5*wrap_to_pi(self.commands[:,2]), -1., 1.)
 
         if self.cfg.terrain.measure_heights:
             self.measured_heights = self._get_heights()
@@ -344,15 +342,14 @@ class LeggedRobot(BaseTask):
         Args:
             env_ids (List[int]): Environments ids for which new commands are needed
         """
-        self.commands[env_ids, 0] = torch_rand_float(self.command_ranges["lin_vel_x"][0], self.command_ranges["lin_vel_x"][1], (len(env_ids), 1), device=self.device).squeeze(1)
-        self.commands[env_ids, 1] = torch_rand_float(self.command_ranges["lin_vel_y"][0], self.command_ranges["lin_vel_y"][1], (len(env_ids), 1), device=self.device).squeeze(1)
+        self.commands[env_ids, 0] = torch_rand_float(self.command_ranges["lin_vel_forward"][0], self.command_ranges["lin_vel_forward"][1], (len(env_ids), 1), device=self.device).squeeze(1)
         if self.cfg.commands.heading_command:
-            self.commands[env_ids, 3] = torch_rand_float(self.command_ranges["heading"][0], self.command_ranges["heading"][1], (len(env_ids), 1), device=self.device).squeeze(1)
+            self.commands[env_ids, 2] = torch_rand_float(self.command_ranges["heading"][0], self.command_ranges["heading"][1], (len(env_ids), 1), device=self.device).squeeze(1)
         else:
-            self.commands[env_ids, 2] = torch_rand_float(self.command_ranges["ang_vel_yaw"][0], self.command_ranges["ang_vel_yaw"][1], (len(env_ids), 1), device=self.device).squeeze(1)
+            self.commands[env_ids, 1] = torch_rand_float(self.command_ranges["ang_vel_yaw"][0], self.command_ranges["ang_vel_yaw"][1], (len(env_ids), 1), device=self.device).squeeze(1)
 
         # set small commands to zero
-        self.commands[env_ids, :2] *= (torch.norm(self.commands[env_ids, :2], dim=1) > 0.2).unsqueeze(1)
+        self.commands[env_ids, :1] *= (torch.norm(self.commands[env_ids, :2], dim=1) > 0.2).unsqueeze(1)
 
     def _compute_torques(self, actions):
         """ Compute torques from actions.
@@ -436,7 +433,7 @@ class LeggedRobot(BaseTask):
         # robots that walked far enough progress to harder terains
         move_up = distance > self.terrain.env_length / 2
         # robots that walked less than half of their required distance go to simpler terrains
-        move_down = (distance < torch.norm(self.commands[env_ids, :2], dim=1)*self.max_episode_length_s*0.5) * ~move_up
+        move_down = (distance < self.commands[env_ids, 0]*self.max_episode_length_s*0.5) * ~move_up
         self.terrain_levels[env_ids] += 1 * move_up - 1 * move_down
         # Robots that solve the last level are sent to a random one
         self.terrain_levels[env_ids] = torch.where(self.terrain_levels[env_ids]>=self.max_terrain_level,
@@ -452,8 +449,8 @@ class LeggedRobot(BaseTask):
         """
         # If the tracking reward is above 80% of the maximum, increase the range of commands
         if torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length > 0.8 * self.reward_scales["tracking_lin_vel"]:
-            self.command_ranges["lin_vel_x"][0] = np.clip(self.command_ranges["lin_vel_x"][0] - 0.5, -self.cfg.commands.max_curriculum, 0.)
-            self.command_ranges["lin_vel_x"][1] = np.clip(self.command_ranges["lin_vel_x"][1] + 0.5, 0., self.cfg.commands.max_curriculum)
+            self.command_ranges["lin_vel_forward"][0] = np.clip(self.command_ranges["lin_vel_forward"][0] - 0.5, -self.cfg.commands.max_curriculum, 0.)
+            self.command_ranges["lin_vel_forward"][1] = np.clip(self.command_ranges["lin_vel_forward"][1] + 0.5, 0., self.cfg.commands.max_curriculum)
 
 
     def _get_noise_scale_vec(self, cfg):
@@ -472,13 +469,13 @@ class LeggedRobot(BaseTask):
         noise_level = self.cfg.noise.noise_level
         noise_vec[:3] = noise_scales.lin_vel * noise_level * self.obs_scales.lin_vel
         noise_vec[3:6] = noise_scales.ang_vel * noise_level * self.obs_scales.ang_vel
-        noise_vec[6:9] = noise_scales.gravity * noise_level
-        noise_vec[9:12] = 0. # commands
+        noise_vec[6:10] = noise_scales.quat * noise_level
+        noise_vec[10:12] = 0. # commands
         noise_vec[12:24] = noise_scales.dof_pos * noise_level * self.obs_scales.dof_pos
         noise_vec[24:36] = noise_scales.dof_vel * noise_level * self.obs_scales.dof_vel
         noise_vec[36:48] = 0. # previous actions
         if self.cfg.terrain.measure_heights:
-            noise_vec[48:235] = noise_scales.height_measurements* noise_level * self.obs_scales.height_measurements
+            noise_vec[48:234] = noise_scales.height_measurements* noise_level * self.obs_scales.height_measurements
         return noise_vec
 
     #----------------------------------------
@@ -515,8 +512,8 @@ class LeggedRobot(BaseTask):
         self.last_actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self.last_dof_vel = torch.zeros_like(self.dof_vel)
         self.last_root_vel = torch.zeros_like(self.root_states[:, 7:13])
-        self.commands = torch.zeros(self.num_envs, self.cfg.commands.num_commands, dtype=torch.float, device=self.device, requires_grad=False) # x vel, y vel, yaw vel, heading
-        self.commands_scale = torch.tensor([self.obs_scales.lin_vel, self.obs_scales.lin_vel, self.obs_scales.ang_vel], device=self.device, requires_grad=False,) # TODO change this
+        self.commands = torch.zeros(self.num_envs, self.cfg.commands.num_commands, dtype=torch.float, device=self.device, requires_grad=False) # forward_vel, ang_vel_yaw, heading
+        self.commands_scale = torch.tensor([self.obs_scales.lin_vel, self.obs_scales.ang_vel], device=self.device, requires_grad=False,) # TODO change this
         self.feet_air_time = torch.zeros(self.num_envs, self.feet_indices.shape[0], dtype=torch.float, device=self.device, requires_grad=False)
         self.last_contacts = torch.zeros(self.num_envs, len(self.feet_indices), dtype=torch.bool, device=self.device, requires_grad=False)
         self.base_lin_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
@@ -875,12 +872,14 @@ class LeggedRobot(BaseTask):
 
     def _reward_tracking_lin_vel(self):
         # Tracking of linear velocity commands (xy axes)
-        lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
+        forward = normalize(quat_apply(self.base_quat, self.forward_vec))
+        forward_vel = self.commands[:,[0]] * forward
+        lin_vel_error = torch.sum(torch.square(forward_vel[:,:2] - self.root_states[:, 7:9]), dim=1)
         return torch.exp(-lin_vel_error/self.cfg.rewards.tracking_sigma)
     
     def _reward_tracking_ang_vel(self):
         # Tracking of angular velocity commands (yaw) 
-        ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
+        ang_vel_error = torch.square(self.commands[:,1] - self.root_states[:,12])
         return torch.exp(-ang_vel_error/self.cfg.rewards.tracking_sigma)
 
     def _reward_feet_air_time(self):
@@ -892,7 +891,7 @@ class LeggedRobot(BaseTask):
         first_contact = (self.feet_air_time > 0.) * contact_filt
         self.feet_air_time += self.dt
         rew_airTime = torch.sum((self.feet_air_time - 0.5) * first_contact, dim=1) # reward only on first contact with the ground
-        rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1 #no reward for zero command
+        rew_airTime *= self.commands[:,0] > 0.1 #no reward for zero command
         self.feet_air_time *= ~contact_filt
         return rew_airTime
     

@@ -28,7 +28,7 @@
 #
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
 #
-# Modifications: Arjun Krishna
+# Modifications by: Arjun Krishna
 # - specify commands in the local frame of reference (useful for navigation commands)
 
 from legged_gym.envs.base.base_config import BaseConfig
@@ -76,7 +76,7 @@ class LeggedRobotCfg(BaseConfig):
         heading_command = True # if true: compute ang vel command from heading error
         class ranges:
             lin_vel_forward = [0.0, 1.0] # min max [m/s]
-            ang_vel_yaw = [-1, 1]    # min max [rad/s]
+            ang_vel_yaw = [-1.5, 1.5]    # min max [rad/s]
             heading = [-3.14, 3.14]
 
     class init_state:
@@ -172,7 +172,7 @@ class LeggedRobotCfg(BaseConfig):
             dof_vel = 1.5
             lin_vel = 0.1
             ang_vel = 0.2
-            gravity = 0.05
+            quat = 0.05
             height_measurements = 0.1
 
     # viewer camera:
