@@ -4,7 +4,7 @@ base_type: relcmd
 
 env:
   num_envs: ${resolve_default:4096,${...num_envs}}
-  num_observations: 48
+  num_observations: 49
   num_privileged_obs: null
   num_actions: 12
   env_spacing: 3
@@ -44,8 +44,9 @@ commands:
   heading_command: false # true: compute ang_vel command from heading error
 
   ranges:
-    lin_vel_forward: [0., 1.]    # [m/s]
-    ang_vel_yaw: [-0.174, 0.174]  # [rad/s] (30)
+    lin_vel_x: [-1., 1.]    # [m/s]
+    lin_vel_y: [-1., 1.]    # [m/s]
+    ang_vel_yaw: [-1.5, 1.5]  # [rad/s] (30)
     heading:  [-3.14, 3.14] # [rad]
 
 init_state:
@@ -115,7 +116,7 @@ rewards:
   scales:
     termination: -0.0
     tracking_lin_vel: 1.0
-    tracking_ang_vel: 0.5
+    tracking_ang_vel: 1.0 # 0.5
     lin_vel_z: -2.0
     ang_vel_xy: -0.05
     orientation: -5.0
@@ -140,8 +141,8 @@ rewards:
 
 normalization:
   obs_scale:
-    lin_vel: 1.0
-    ang_vel: 1.0
+    lin_vel: 2.0
+    ang_vel: 0.25
     dof_pos: 1.0
     dof_vel: 0.05
     height_measurements: 5.0
