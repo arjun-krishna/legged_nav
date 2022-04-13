@@ -3,3 +3,4 @@ matplotlib
 hydra-core
 -f https://download.pytorch.org/whl/cu113/torch_stable.html
 torch==1.11.0+cu113
+git+https://github.com/erwincoumans/motion_imitation.git#egg=motion_imitation
