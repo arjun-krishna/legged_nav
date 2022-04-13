@@ -115,8 +115,8 @@ class LeggedRobot(BaseTask):
 
         # prepare quantities
         self.base_quat[:] = self.root_states[:, 3:7]
-        self.base_lin_vel[:] = self.root_states[:, 7:10] # quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
-        self.base_ang_vel[:] = self.root_states[:, 10:13] # quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
+        self.base_lin_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
+        self.base_ang_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
         self.projected_gravity[:] = quat_rotate_inverse(self.base_quat, self.gravity_vec)
 
         self._post_physics_step_callback()
@@ -515,8 +515,8 @@ class LeggedRobot(BaseTask):
         self.commands_scale = torch.tensor([self.obs_scales.lin_vel, self.obs_scales.lin_vel, self.obs_scales.ang_vel], device=self.device, requires_grad=False,) # TODO change this
         self.feet_air_time = torch.zeros(self.num_envs, self.feet_indices.shape[0], dtype=torch.float, device=self.device, requires_grad=False)
         self.last_contacts = torch.zeros(self.num_envs, len(self.feet_indices), dtype=torch.bool, device=self.device, requires_grad=False)
-        self.base_lin_vel = self.root_states[:, 7:10]  # quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
-        self.base_ang_vel = self.root_states[:, 10:13] # quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
+        self.base_lin_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
+        self.base_ang_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
         self.projected_gravity = quat_rotate_inverse(self.base_quat, self.gravity_vec)
         if self.cfg.terrain.measure_heights:
             self.height_points = self._init_height_points()
