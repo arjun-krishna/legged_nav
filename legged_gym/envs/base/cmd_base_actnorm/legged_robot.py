@@ -83,7 +83,7 @@ class LeggedRobot(BaseTask):
             actions (torch.Tensor): Tensor of shape (num_envs, num_actions_per_env)
         """
         clip_actions = self.cfg.normalization.clip_actions
-        self.actions = torch.clip(actions, -clip_actions, clip_actions).to(self.device)
+        self.actions = torch.clip(actions, -clip_actions, clip_actions).to(self.device) # TODO: do tanh?
         # step physics and render each frame
         self.render()
         for _ in range(self.cfg.control.decimation):
@@ -362,7 +362,8 @@ class LeggedRobot(BaseTask):
             [torch.Tensor]: Torques sent to the simulation
         """
         #pd controller
-        actions_scaled = actions * self.cfg.control.action_scale
+        # actions_scaled = actions * self.cfg.control.action_scale
+        actions_scaled = actions * self.act_scale + self.act_bias - self.default_dof_pos
         control_type = self.cfg.control.control_type
         if control_type=="P":
             torques = self.p_gains*(actions_scaled + self.default_dof_pos - self.dof_pos) - self.d_gains*self.dof_vel
@@ -524,6 +525,9 @@ class LeggedRobot(BaseTask):
 
         # joint positions offsets and PD gains
         self.default_dof_pos = torch.zeros(self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
+
+        self.act_bias = torch.zeros(self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
+        self.act_scale = torch.zeros(self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
         for i in range(self.num_dofs):
             name = self.dof_names[i]
             angle = self.cfg.init_state.default_joint_angles[name]
@@ -539,6 +543,9 @@ class LeggedRobot(BaseTask):
                 self.d_gains[i] = 0.
                 if self.cfg.control.control_type in ["P", "V"]:
                     print(f"PD gain of joint {name} were not defined, setting them to zero")
+            act_range = self.cfg.normalization.act_ranges[name]
+            self.act_bias[i] = sum(act_range) / 2
+            self.act_scale[i] = (act_range[1] - act_range[0]) / 2
         self.default_dof_pos = self.default_dof_pos.unsqueeze(0)
 
     def _prepare_reward_function(self):
