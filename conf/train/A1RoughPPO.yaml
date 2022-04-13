@@ -28,7 +28,7 @@ runner:
 
   # logging
   save_interval: 50
-  experiment_name: ${resolve_default:A1Rough,${...experiment_name}}
+  experiment_name: ${resolve_default:${...task.name},${...experiment_name}}
   run_name: ${resolve_default:'',${...run_name}}
 
   # load and resume
