@@ -15,56 +15,128 @@ from motion_imitation.envs import env_builder
 from motion_imitation.robots import a1
 from motion_imitation.robots import robot_config
 
+import torch
 import argparse
 
 from gym import error, spaces
 
+SCALES = {
+    'action': 0.25,
+    'lin_vel': 2.0,
+    'ang_vel': 0.25,
+    'dof_pos': 1.0,
+    'dof_vel': 0.05
+}
 CONTROL_TIME_STEP = 0.025
 FREQ = 0.1
 FLAGS = flags.FLAGS
 
+flags.DEFINE_boolean("rack", False, "put robot on a rack")
+flags.DEFINE_boolean("headless", False, "run script without rendering")
+
+# swap_idx = [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]
+swap_idx = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+default_joint_pos = torch.tensor([0.1, 0.8, -1.5, -0.1, 0.8, -1.5, 0.1, 1.0, -1.5, -0.1, 1.0, -1.5])
+
+def quat_rotate_inverse(q, v):
+    q_w = q[-1]
+    q_vec = q[:3]
+    a = v * (2.0 * q_w ** 2 - 1.0).unsqueeze(-1)
+    b = torch.cross(q_vec, v, dim=-1) * q_w.unsqueeze(-1) * 2.0
+    c = q_vec * \
+        torch.bmm(q_vec.view(1, 1, 3), v.view(1, 3, 1)).squeeze(-1) * 2.0
+    return a - b + c
+
+def compute_observations(sim_env, commands, prev_a):
+    sim_env.robot.GetTrueObservation()
+    obs = torch.cat([
+        (torch.tensor(sim_env.robot.GetBaseVelocity()) * SCALES['lin_vel']),
+        (torch.tensor(sim_env.robot.GetBaseRollPitchYawRate()) * SCALES['ang_vel']),
+        quat_rotate_inverse(
+            torch.tensor(sim_env.robot.GetBaseOrientation()),
+            torch.tensor([0, 0, -9.81])
+            )[0],
+        commands,
+        ((torch.tensor(sim_env.robot.GetMotorAngles()[swap_idx]) - default_joint_pos) * SCALES['dof_pos']),
+        (torch.tensor(sim_env.robot.GetMotorVelocities())[swap_idx] * SCALES['dof_vel']),
+        prev_a,
+    ], dim=0)
+    return obs.to(torch.float)
+
+def exec_policy(policy, obs):
+    a = policy(obs) # a - FL, FR, RL, RR
+    target = (SCALES['action'] * a) + default_joint_pos
+
+    # rewire legs to FR, FL, RR, RL
+    return target[swap_idx].detach().numpy(), a
+
 def main(_):
     logging.info("running pybullet")
 
-    a1.ABDUCTION_P_GAIN = 10
+    # motor controller gains
+    a1.ABDUCTION_P_GAIN = 40
+    a1.ABDUCTION_D_GAIN = 0.5
+    a1.HIP_P_GAIN = 40
+    a1.HIP_D_GAIN = 0.5
+    a1.KNEE_P_GAIN = 40
+    a1.KNEE_D_GAIN = 0.5
 
     sim_env = env_builder.build_regular_env(
         robot_class=a1.A1, 
         motor_control_mode=robot_config.MotorControlMode.POSITION,
-        on_rack=False,
-        enable_rendering=False,
+        on_rack=FLAGS.rack,
+        enable_rendering=(not FLAGS.headless),
         wrap_trajectory_generator=False)
 
-    print(sim_env.robot._motor_kps)
-    quit()
+    sim_env._gym_config.simulation_parameters.num_action_repeat = 4
+    sim_env.pybullet_client.addUserDebugParameter( # TODO: why this is required?
+        paramName='dummy',
+        rangeMin=-0.1,
+        rangeMax=0.1,
+        startValue=0
+    )
+    command_vel_x = sim_env.pybullet_client.addUserDebugParameter(
+        paramName='lin_vel_x',
+        rangeMin=-1,
+        rangeMax=1,
+        startValue=0
+    )
+    command_vel_y = sim_env.pybullet_client.addUserDebugParameter(
+        paramName='lin_vel_y',
+        rangeMin=-1,
+        rangeMax=1,
+        startValue=0
+    )
+    command_yaw_rate = sim_env.pybullet_client.addUserDebugParameter(
+        paramName='yaw_rate',
+        rangeMin=-1.5,
+        rangeMax=1.5,
+        startValue=0
+    )
 
-    action_low, action_high = sim_env.action_space.low, sim_env.action_space.high
-    dim_action = action_low.shape[0]
-    action_selector_ids = []
+    policy = torch.jit.load('policy/a1_cmdtracker.pt')
+    policy.eval()
 
-    robot_motor_angles = sim_env.robot.GetMotorAngles()
-
-    for dim in range(dim_action):
-        action_selector_id = sim_env.pybullet_client.addUserDebugParameter(
-            paramName=f'dim{dim}',
-            rangeMin=action_low[dim],
-            rangeMax=action_high[dim],
-            startValue=robot_motor_angles[dim]
-        )
-        action_selector_ids.append(action_selector_id)
+    def handle_key_events():
+        pressed_keys = []
+        events = sim_env.pybullet_client.getKeyboardEvents()
+        key_codes = events.keys()
+        if 114 in key_codes: # r
+            sim_env.reset()
     
+    prev_a = torch.zeros(12)
     for _ in range(10000):
-        action = np.zeros(dim_action)
-        for dim in range(dim_action):
-            action[dim] = sim_env.pybullet_client.readUserDebugParameter(action_selector_ids[dim])
-        sim_env.step(action)
-
-    # for t in range(1000):
-    #     angle_hip = 0.9 + 0.2 * np.sin(2 * np.pi * FREQ * 0.01 * t)
-    #     angle_calf = -2 * angle_hip
-    #     action = np.array([0., angle_hip, angle_calf] * 4)
-    #     robot.Step(action, robot_config.MotorControlMode.POSITION)
-    #     time.sleep(CONTROL_TIME_STEP)    
+        commands = torch.tensor([
+            sim_env.pybullet_client.readUserDebugParameter(command_vel_x) * SCALES['lin_vel'],
+            sim_env.pybullet_client.readUserDebugParameter(command_vel_y) * SCALES['lin_vel'],
+            sim_env.pybullet_client.readUserDebugParameter(command_yaw_rate) * SCALES['ang_vel'],
+        ])
+        obs = compute_observations(sim_env, commands, prev_a)
+        # print(obs)
+        target, a = exec_policy(policy, obs)
+        sim_env.step(target)
+        prev_a = a.clone()
+        handle_key_events()
     sim_env.Terminate()
 
 

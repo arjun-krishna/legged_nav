@@ -524,8 +524,10 @@ class LeggedRobot(BaseTask):
 
         # joint positions offsets and PD gains
         self.default_dof_pos = torch.zeros(self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
+        print("dof index mapping")
         for i in range(self.num_dofs):
             name = self.dof_names[i]
+            print(i, name)
             angle = self.cfg.init_state.default_joint_angles[name]
             self.default_dof_pos[i] = angle
             found = False
