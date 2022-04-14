@@ -34,8 +34,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_boolean("rack", False, "put robot on a rack")
 flags.DEFINE_boolean("headless", False, "run script without rendering")
 
-# swap_idx = [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]
-swap_idx = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+swap_idx = [3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]
 default_joint_pos = torch.tensor([0.1, 0.8, -1.5, -0.1, 0.8, -1.5, 0.1, 1.0, -1.5, -0.1, 1.0, -1.5])
 
 def quat_rotate_inverse(q, v):
@@ -54,7 +53,7 @@ def compute_observations(sim_env, commands, prev_a):
         (torch.tensor(sim_env.robot.GetBaseRollPitchYawRate()) * SCALES['ang_vel']),
         quat_rotate_inverse(
             torch.tensor(sim_env.robot.GetBaseOrientation()),
-            torch.tensor([0, 0, -9.81])
+            torch.tensor([0, 0, -1.0])
             )[0],
         commands,
         ((torch.tensor(sim_env.robot.GetMotorAngles()[swap_idx]) - default_joint_pos) * SCALES['dof_pos']),
@@ -70,16 +69,39 @@ def exec_policy(policy, obs):
     # rewire legs to FR, FL, RR, RL
     return target[swap_idx].detach().numpy(), a
 
+def setup_commands(sim_env, vel_x, vel_y, yaw_rate):
+    command_vel_x = sim_env.pybullet_client.addUserDebugParameter(
+        paramName='vel_x',
+        rangeMin=-1,
+        rangeMax=1,
+        startValue=0
+    )
+    command_vel_y = sim_env.pybullet_client.addUserDebugParameter(
+        paramName='vel_y',
+        rangeMin=-1,
+        rangeMax=1,
+        startValue=0
+    )
+    command_yaw_rate = sim_env.pybullet_client.addUserDebugParameter(
+        paramName='yaw_rate',
+        rangeMin=-1.5,
+        rangeMax=1.5,
+        startValue=0
+    )
+    return command_vel_x, command_vel_y, command_yaw_rate
+
+FOLLOW = False
+
 def main(_):
     logging.info("running pybullet")
 
     # motor controller gains
-    a1.ABDUCTION_P_GAIN = 40
-    a1.ABDUCTION_D_GAIN = 0.5
-    a1.HIP_P_GAIN = 40
-    a1.HIP_D_GAIN = 0.5
-    a1.KNEE_P_GAIN = 40
-    a1.KNEE_D_GAIN = 0.5
+    # a1.ABDUCTION_P_GAIN = 40
+    # a1.ABDUCTION_D_GAIN = 0.5
+    # a1.HIP_P_GAIN = 40
+    # a1.HIP_D_GAIN = 0.5
+    # a1.KNEE_P_GAIN = 40
+    # a1.KNEE_D_GAIN = 0.5
 
     sim_env = env_builder.build_regular_env(
         robot_class=a1.A1, 
@@ -95,34 +117,20 @@ def main(_):
         rangeMax=0.1,
         startValue=0
     )
-    command_vel_x = sim_env.pybullet_client.addUserDebugParameter(
-        paramName='lin_vel_x',
-        rangeMin=-1,
-        rangeMax=1,
-        startValue=0
-    )
-    command_vel_y = sim_env.pybullet_client.addUserDebugParameter(
-        paramName='lin_vel_y',
-        rangeMin=-1,
-        rangeMax=1,
-        startValue=0
-    )
-    command_yaw_rate = sim_env.pybullet_client.addUserDebugParameter(
-        paramName='yaw_rate',
-        rangeMin=-1.5,
-        rangeMax=1.5,
-        startValue=0
-    )
+    command_vel_x, command_vel_y, command_yaw_rate = setup_commands(sim_env, 0, 0, 0)
 
     policy = torch.jit.load('policy/a1_cmdtracker.pt')
     policy.eval()
 
     def handle_key_events():
+        global FOLLOW
         pressed_keys = []
         events = sim_env.pybullet_client.getKeyboardEvents()
         key_codes = events.keys()
-        if 114 in key_codes: # r
+        if 114 in key_codes: # r - reset
             sim_env.reset()
+        if 102 in key_codes: # f - follow toggle
+            FOLLOW = not FOLLOW
     
     prev_a = torch.zeros(12)
     for _ in range(10000):
@@ -137,6 +145,15 @@ def main(_):
         sim_env.step(target)
         prev_a = a.clone()
         handle_key_events()
+        if FOLLOW:
+            robot_xy = sim_env.robot.GetBasePosition()[:2]
+            robot_yaw = sim_env.robot.GetTrueBaseRollPitchYaw()[2] * 180 / np.pi
+            sim_env.pybullet_client.resetDebugVisualizerCamera(
+                cameraDistance=3,
+                cameraYaw=-90,          #robot_yaw-90 -- to track yaw
+                cameraPitch=-50,
+                cameraTargetPosition=(*robot_xy, 0)
+            )
     sim_env.Terminate()
 
 
