@@ -350,6 +350,52 @@ class LeggedRobot(BaseTask):
         Args:
             env_ids (List[int]): Environments ids for which new commands are needed
         """
+        if self.viewer and self.cfg.commands.use_key_events:
+            for evt in self.gym.query_viewer_action_events(self.viewer):
+                if evt.value > 0:
+                    if evt.action == "zero_out":
+                        self.commands[env_ids,:] = 0
+                    if evt.action == "follow":
+                        self.follow = not self.follow
+
+                    if evt.action == "forward":
+                        self.commands[env_ids,0] = self.commands[env_ids,0] + 0.1
+                    if evt.action == "backward":
+                        self.commands[env_ids,0] = self.commands[env_ids,0] - 0.1
+                    self.commands[env_ids,0] = torch.clamp(self.commands[env_ids,0], min=self.command_ranges["lin_vel_x"][0], max=self.command_ranges["lin_vel_x"][1])
+                    
+                    if evt.action == "left":
+                        self.commands[env_ids,1] = self.commands[env_ids,1] + 0.1
+                    if evt.action == "right":
+                        self.commands[env_ids,1] = self.commands[env_ids,1] - 0.1
+                    self.commands[env_ids,1] = torch.clamp(self.commands[env_ids,1], min=self.command_ranges["lin_vel_y"][0], max=self.command_ranges["lin_vel_y"][1])
+                    
+                    if evt.action == "turn_left":
+                        if self.cfg.commands.heading_command:
+                            self.commands[env_ids,3] = self.commands[env_ids,3] + 0.1
+                        else:
+                            self.commands[env_ids,2] = self.commands[env_ids,2] + 0.1
+                    if evt.action == "turn_right":
+                        if self.cfg.commands.heading_command:
+                            self.commands[env_ids,3] = self.commands[env_ids,3] - 0.1
+                        else:
+                            self.commands[env_ids,2] = self.commands[env_ids,2] - 0.1
+                    if self.cfg.commands.heading_command:
+                        self.commands[env_ids,3] = torch.clamp(self.commands[env_ids,3], min=self.command_ranges["heading"][0], max=self.command_ranges["heading"][1])
+                    else:
+                        self.commands[env_ids,2] = torch.clamp(self.commands[env_ids,2], min=self.command_ranges["ang_vel_yaw"][0], max=self.command_ranges["ang_vel_yaw"][1])
+
+                    if evt.action == "destroy":
+                        self.gym.destroy_viewer(self.viewer)
+                        self.gym.destroy_sim(self.sim)
+                        quit()
+            if self.num_envs == 1 and self.follow: # track agent
+                forward = quat_apply(self.base_quat, self.forward_vec)
+                robot_base_pos = self.actor_root_states[:,:3]
+                cam_pos = robot_base_pos - 2*forward - 2*self.gravity_vec
+                cam_pos[:,2] = 2
+                self.set_camera(cam_pos[0,:3], robot_base_pos[0,:3])
+            return
         self.commands[env_ids, 0] = torch_rand_float(self.command_ranges["lin_vel_x"][0], self.command_ranges["lin_vel_x"][1], (len(env_ids), 1), device=self.device).squeeze(1)
         self.commands[env_ids, 1] = torch_rand_float(self.command_ranges["lin_vel_y"][0], self.command_ranges["lin_vel_y"][1], (len(env_ids), 1), device=self.device).squeeze(1)
         if self.cfg.commands.heading_command:
@@ -571,6 +617,19 @@ class LeggedRobot(BaseTask):
                     print(f"PD gain of joint {name} were not defined, setting them to zero")
         self.default_dof_pos = self.default_dof_pos.unsqueeze(0)
 
+        if self.viewer and self.cfg.commands.use_key_events:
+            self.follow = True
+            self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_UP, "forward")
+            self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_DOWN, "backward")
+            self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_LEFT, "left")
+            self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_RIGHT, "right")
+            self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_LEFT_BRACKET, "turn_left")
+            self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_RIGHT_BRACKET, "turn_right")            
+            self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_ESCAPE, "destroy")
+            self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_F, "follow")
+            self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_Z, "zero_out")
+            self.cfg.commands.resampling_time = self.dt
+
     def _prepare_reward_function(self):
         """ Prepares a list of reward functions, whcih will be called to compute the total reward.
             Looks for self._reward_<REWARD_NAME>, where <REWARD_NAME> are names of all non zero reward scales in the cfg.
@@ -780,6 +839,21 @@ class LeggedRobot(BaseTask):
             return
         self.gym.clear_lines(self.viewer)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
+
+        # visualize command vectors
+        base_pos = (self.actor_root_states[:,:3]).cpu().numpy()
+        d = torch.zeros_like(self.commands[:,:3])
+        d[:,:2] = self.commands[:,:2]
+        d = quat_apply(self.base_quat, d)
+        base_command_pos = base_pos + d.cpu().numpy()
+        up = -self.projected_gravity.cpu().numpy()
+        yaw_rate_command = self.commands[:,[2]].cpu().numpy()
+        for i in range(self.num_envs):
+            gymutil.draw_line(gymapi.Vec3(*base_pos[i]), gymapi.Vec3(*base_command_pos[i]), gymapi.Vec3(0,1,0), self.gym, self.viewer, self.envs[i])
+            
+            color = gymapi.Vec3(0,0,1) if yaw_rate_command[i] > 0 else gymapi.Vec3(1,0,0)
+            target = base_pos[i] + abs(yaw_rate_command[i])*up[i]
+            gymutil.draw_line(gymapi.Vec3(*base_pos[i]), gymapi.Vec3(*target), color, self.gym, self.viewer, self.envs[i])
 
         if self.use_lidar:
             base_pos = (self.actor_root_states[:,:3]).cpu().numpy()

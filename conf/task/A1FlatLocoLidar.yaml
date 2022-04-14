@@ -61,6 +61,7 @@ commands:
   num_commands: 4 # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading
   resampling_time: 4 # time before command is changed[s]
   heading_command: false # true: compute ang_vel command from heading error
+  use_key_events: false  # true: commands are specified by keyboard events
 
   ranges:
     lin_vel_x: [-1., 1.]    # [m/s]

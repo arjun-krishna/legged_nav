@@ -8,3 +8,8 @@ point goal navigation are created.
 2. ```bash
     pip install -r requirements.txt
    ```
+
+# Fun commands
+```bash
+python run.py task=A1FlatLocoLidar num_envs=1 test=True task.commands.use_key_events=True task.env.debug_viz=True task.env.episode_length_s=120
+```
