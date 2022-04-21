@@ -1,0 +1,1 @@
+python run.py task=A1FlatLocoLidar experiment_name=LocoLidarPenalizeContact test=True num_envs=1 task.obstacle.static.num=10 task.commands.use_key_events=True task.env.debug_viz=True task.env.episode_length_s=120
