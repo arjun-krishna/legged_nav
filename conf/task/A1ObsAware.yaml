@@ -83,8 +83,8 @@ control:
 asset:
   file: "{LEGGED_GYM_ROOT_DIR}/resources/robots/a1/urdf/a1.urdf"
   foot_name: "foot"
-  penalize_contacts_on: ["thigh", "calf"]
-  terminate_after_contacts_on: ["base"]
+  penalize_contacts_on: ["thigh", "calf", "base"]
+  terminate_after_contacts_on: [] #["base"]
   disable_gravity: False
   collapse_fixed_joints: true
   fix_base_link: False

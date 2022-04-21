@@ -39,6 +39,7 @@ class LeggedRobotCfg(BaseConfig):
         send_timeouts = True # send time out information to the algorithm
         episode_length_s = 20 # episode length in seconds
         debug_viz = False
+        min_base_height = 0.11
 
     class terrain:
         static_friction = 1.0
