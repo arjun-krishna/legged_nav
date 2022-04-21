@@ -750,6 +750,22 @@ class LeggedRobot(BaseTask):
         """
         self.gym.clear_lines(self.viewer)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
+
+        # visualize command vectors
+        base_pos = (self.root_states[:,:3]).cpu().numpy()
+        d = torch.zeros_like(self.commands[:,:3])
+        d[:,:2] = self.commands[:,:2]
+        d = quat_apply(self.base_quat, d)
+        base_command_pos = base_pos + d.cpu().numpy()
+        up = -self.projected_gravity.cpu().numpy()
+        yaw_rate_command = self.commands[:,[2]].cpu().numpy()
+        for i in range(self.num_envs):
+            gymutil.draw_line(gymapi.Vec3(*base_pos[i]), gymapi.Vec3(*base_command_pos[i]), gymapi.Vec3(0,1,0), self.gym, self.viewer, self.envs[i])
+            
+            color = gymapi.Vec3(0,0,1) if yaw_rate_command[i] > 0 else gymapi.Vec3(1,0,0)
+            target = base_pos[i] + abs(yaw_rate_command[i])*up[i]
+            gymutil.draw_line(gymapi.Vec3(*base_pos[i]), gymapi.Vec3(*target), color, self.gym, self.viewer, self.envs[i])
+
         for i in range(self.num_envs):
             base_pos = (self.root_states[i, :3]).cpu().numpy()
             heights = self.measured_heights[i].cpu().numpy()
