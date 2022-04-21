@@ -545,6 +545,8 @@ class LeggedRobot(BaseTask):
         self.base_ang_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
         self.projected_gravity = quat_rotate_inverse(self.base_quat, self.gravity_vec)
         self.height_points = self._init_height_points()
+        if self.cfg.rewards.scales.repel_obstacles != 0:
+            self.repel_weights = self._init_obstacle_repel_weights()
         self.measured_heights = None
         self.noise_scale_vec = self._get_noise_scale_vec(self.cfg)  # need num_height_points
 
@@ -759,10 +761,7 @@ class LeggedRobot(BaseTask):
                     gymutil.draw_line(gymapi.Vec3(x,y,0), gymapi.Vec3(x,y,2), gymapi.Vec3(1,0,0), self.gym, self.viewer, self.envs[i])
 
     def _init_height_points(self):
-        """Return ground truth height measurements used to approximate 2D-lidar"""
-        lidar_dist = 2.0
-        lidar_coarse = 0.25   # 0.25 x 0.25 blocks measured heights
-        
+        """Return ground truth height measurements used to approximate 2D-lidar"""        
         x = y = torch.arange(
             -self.cfg.obstacle_course.lidar_dist,
             self.cfg.obstacle_course.lidar_dist,
@@ -776,6 +775,21 @@ class LeggedRobot(BaseTask):
         points[:,:,0] = grid_x.flatten()
         points[:,:,1] = grid_y.flatten()
         return points
+    
+    def _init_obstacle_repel_weights(self):
+        x = y = torch.arange(
+            -self.cfg.obstacle_course.lidar_dist,
+            self.cfg.obstacle_course.lidar_dist,
+            self.cfg.obstacle_course.lidar_granularity,
+            device=self.device,
+            requires_grad=False
+        )
+        grid_x, grid_y = torch.meshgrid(x, y, indexing='ij')
+        repel_weights = torch.exp(-0.5*(grid_x**2 + grid_y**2)) # TODO uses sigma=1 (change for different lidar_dist)
+        repel_weights = repel_weights / repel_weights.sum() # normalize
+        rw = torch.zeros(self.num_envs, self.num_height_points, device=self.device, requires_grad=False)
+        rw[:,:] = repel_weights.flatten()
+        return rw
 
     def _get_heights(self, env_ids=None):
         if env_ids:
@@ -903,3 +917,6 @@ class LeggedRobot(BaseTask):
     def _reward_feet_contact_forces(self):
         # penalize high contact forces
         return torch.sum((torch.norm(self.contact_forces[:, self.feet_indices, :], dim=-1) -  self.cfg.rewards.max_contact_force).clip(min=0.), dim=1)
+    
+    def _reward_repel_obstacles(self):
+        return torch.sum(self.measured_heights * self.repel_weights, dim=1)
